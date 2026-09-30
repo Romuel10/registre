@@ -11,6 +11,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -30,6 +31,15 @@ import org.json.JSONObject
 
 class RegistreRepository(private val context: Context) {
     private val pendingPrefs = context.getSharedPreferences("supabase_pending_entries", Context.MODE_PRIVATE)
+    private val devicePrefs = context.getSharedPreferences("registre_device", Context.MODE_PRIVATE)
+    private val notificationPrefs = context.getSharedPreferences("community_notifications", Context.MODE_PRIVATE)
+
+    val deviceId: String by lazy {
+        devicePrefs.getString(DEVICE_ID_KEY, null)
+            ?: UUID.randomUUID().toString().also {
+                devicePrefs.edit().putString(DEVICE_ID_KEY, it).apply()
+            }
+    }
 
     fun observeEntries(year: Int, type: RegisterType): Flow<List<RegisterEntry>> = flow {
         var lastRemote = emptyList<RegisterEntry>()
@@ -39,9 +49,7 @@ class RegistreRepository(private val context: Context) {
                 withContext(Dispatchers.IO) { fetchRemoteEntries(year, type) }
             }.getOrElse { lastRemote }
 
-            if (remote.isNotEmpty() || lastRemote.isEmpty()) {
-                lastRemote = remote
-            }
+            if (remote.isNotEmpty() || lastRemote.isEmpty()) lastRemote = remote
 
             val pending = loadPendingEntries(year, type)
             val combined = (lastRemote + pending).sortedWith(
@@ -55,7 +63,10 @@ class RegistreRepository(private val context: Context) {
     }
 
     suspend fun createStandard(year: Int, type: RegisterType, input: StandardEntryInput): String {
+        val entryId = UUID.randomUUID().toString()
         val payload = JSONObject()
+            .put("entryId", entryId)
+            .put("creatorDeviceId", deviceId)
             .put("year", year)
             .put("registerType", type.code)
             .put("pieceNumber", input.pieceNumber.trim())
@@ -65,26 +76,29 @@ class RegistreRepository(private val context: Context) {
             .put("observation", input.observation.trim())
             .put("movementKind", input.movementKind)
             .put("durationDays", input.durationDays)
+            .put("durationIndefinite", input.durationIndefinite)
             .put("beneficiary", input.beneficiary.trim())
             .put("departureDate", input.departureDate)
             .put("arrivalDate", input.arrivalDate)
 
-        val entryId = createOrQueue(payload)
-
-        if (input.durationDays > 0 && input.arrivalDate.isNotBlank()) {
-            ReminderScheduler.scheduleAvailability(
-                context,
-                entryId,
-                input.beneficiary.ifBlank { input.label },
-                input.movementKind.ifBlank { "déplacement" },
-                input.arrivalDate,
-            )
-        }
+        createOrQueue(entryId, payload)
+        scheduleMovementReminder(
+            entryId = entryId,
+            person = input.beneficiary.ifBlank { input.label },
+            kind = input.movementKind.ifBlank { "déplacement" },
+            departureDate = input.departureDate,
+            arrivalDate = input.arrivalDate,
+            durationDays = input.durationDays,
+            indefinite = input.durationIndefinite,
+        )
         return entryId
     }
 
     suspend fun createPermission(year: Int, input: PermissionEntryInput): String {
+        val entryId = UUID.randomUUID().toString()
         val payload = JSONObject()
+            .put("entryId", entryId)
+            .put("creatorDeviceId", deviceId)
             .put("year", year)
             .put("registerType", RegisterType.R3PERM.code)
             .put("grade", input.grade.trim())
@@ -93,51 +107,139 @@ class RegistreRepository(private val context: Context) {
             .put("numberR3", input.numberR3.trim())
             .put("departureDate", input.departureDate)
             .put("arrivalDate", input.arrivalDate)
-            .put("annualRight", input.annualRight)
-            .put("consumedRight", input.consumedRight)
+            .put("annualRightYear", input.annualRightYear)
+            .put("consumedRightDetail", input.consumedRightDetail.trim())
             .put("durationDays", input.durationDays)
+            .put("durationIndefinite", input.durationIndefinite)
             .put("movementKind", "permission")
             .put("beneficiary", input.fullName.trim())
 
-        val entryId = createOrQueue(payload)
-
-        ReminderScheduler.scheduleAvailability(
-            context,
-            entryId,
-            input.fullName,
-            "permission",
-            input.arrivalDate,
+        createOrQueue(entryId, payload)
+        scheduleMovementReminder(
+            entryId = entryId,
+            person = input.fullName,
+            kind = "permission",
+            departureDate = input.departureDate,
+            arrivalDate = input.arrivalDate,
+            durationDays = input.durationDays,
+            indefinite = input.durationIndefinite,
         )
         return entryId
     }
 
-    suspend fun syncPendingEntries() {
-        val pending = readPendingArray()
-        if (pending.length() == 0) return
-
-        val completed = mutableListOf<String>()
-        withContext(Dispatchers.IO) {
-            for (index in 0 until pending.length()) {
-                val item = pending.getJSONObject(index)
-                val localId = item.getString("localId")
-                val payload = item.getJSONObject("payload")
-                postEntry(payload)
-                completed += localId
-            }
+    suspend fun closeMovement(entryId: String) {
+        if (markPendingClosed(entryId)) {
+            ReminderScheduler.cancelAvailability(context, entryId)
+            return
         }
-        completed.forEach(::removePending)
+
+        addLocallyClosed(entryId)
+        ReminderScheduler.cancelAvailability(context, entryId)
+
+        try {
+            withContext(Dispatchers.IO) { closeMovementRemote(entryId) }
+            removeLocallyClosed(entryId)
+        } catch (error: SupabaseHttpException) {
+            removeLocallyClosed(entryId)
+            throw error
+        } catch (_: IOException) {
+            queueClosure(entryId)
+            enqueuePendingSync()
+        }
     }
 
-    private suspend fun createOrQueue(payload: JSONObject): String {
-        return try {
-            withContext(Dispatchers.IO) { postEntry(payload).id }
+    suspend fun syncPendingEntries() {
+        val pending = readPendingArray()
+        if (pending.length() > 0) {
+            val completed = mutableListOf<String>()
+            withContext(Dispatchers.IO) {
+                for (index in 0 until pending.length()) {
+                    val item = pending.getJSONObject(index)
+                    val localId = item.getString("localId")
+                    val payload = item.getJSONObject("payload")
+                    postEntry(payload)
+                    completed += localId
+                }
+            }
+            completed.forEach(::removePending)
+        }
+
+        syncQueuedClosures()
+    }
+
+    suspend fun checkCommunityNotifications(): List<RegisterEntry> {
+        val cursor = notificationPrefs.getString(LAST_COMMUNITY_CURSOR_KEY, null)
+        if (cursor == null) {
+            notificationPrefs.edit()
+                .putString(LAST_COMMUNITY_CURSOR_KEY, OffsetDateTime.now(ZoneOffset.UTC).toString())
+                .apply()
+            return emptyList()
+        }
+
+        return withContext(Dispatchers.IO) {
+            val encodedCursor = URLEncoder.encode(cursor, Charsets.UTF_8.name())
+            val encodedDevice = URLEncoder.encode(deviceId, Charsets.UTF_8.name())
+            val path = "/rest/v1/registre_entries" +
+                "?select=*" +
+                "&created_at=gt.$encodedCursor" +
+                "&creator_device_id=neq.$encodedDevice" +
+                "&order=created_at.asc"
+
+            val response = request("GET", path, null)
+            val array = JSONArray(response)
+            if (array.length() == 0) return@withContext emptyList()
+
+            val result = buildList {
+                for (index in 0 until array.length()) {
+                    add(fromRemoteJson(array.getJSONObject(index)))
+                }
+            }
+            val lastCreatedAt = array.getJSONObject(array.length() - 1).optString("created_at")
+            if (lastCreatedAt.isNotBlank()) {
+                notificationPrefs.edit().putString(LAST_COMMUNITY_CURSOR_KEY, lastCreatedAt).apply()
+            }
+            result
+        }
+    }
+
+    private fun scheduleMovementReminder(
+        entryId: String,
+        person: String,
+        kind: String,
+        departureDate: String,
+        arrivalDate: String,
+        durationDays: Int,
+        indefinite: Boolean,
+    ) {
+        if (departureDate.isBlank()) return
+
+        if (indefinite) {
+            ReminderScheduler.scheduleIndefiniteAvailability(
+                context,
+                entryId,
+                person,
+                kind,
+                departureDate,
+            )
+        } else if (durationDays > 0 && arrivalDate.isNotBlank()) {
+            ReminderScheduler.scheduleAvailability(
+                context,
+                entryId,
+                person,
+                kind,
+                arrivalDate,
+            )
+        }
+    }
+
+    private suspend fun createOrQueue(entryId: String, payload: JSONObject) {
+        try {
+            withContext(Dispatchers.IO) { postEntry(payload) }
         } catch (error: SupabaseHttpException) {
             throw error
-        } catch (error: IOException) {
-            val localId = "local-" + UUID.randomUUID().toString()
-            savePending(localId, payload)
+        } catch (_: IOException) {
+            savePending(entryId, payload)
             enqueuePendingSync()
-            localId
         }
     }
 
@@ -153,9 +255,7 @@ class RegistreRepository(private val context: Context) {
         val response = request("GET", path, null)
         val array = JSONArray(response)
         return buildList {
-            for (index in 0 until array.length()) {
-                add(fromRemoteJson(array.getJSONObject(index)))
-            }
+            for (index in 0 until array.length()) add(fromRemoteJson(array.getJSONObject(index)))
         }
     }
 
@@ -171,8 +271,16 @@ class RegistreRepository(private val context: Context) {
         return fromRemoteJson(obj)
     }
 
+    private fun closeMovementRemote(entryId: String) {
+        val body = JSONObject()
+            .put("p_entry_id", entryId)
+            .put("p_device_id", deviceId)
+            .toString()
+        request("POST", "/rest/v1/rpc/registre_close_movement", body)
+    }
+
     private fun request(method: String, path: String, body: String?): String {
-        val connection = (URL(SupabaseConfig.url + path).openConnection() as HttpURLConnection)
+        val connection = URL(SupabaseConfig.url + path).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = method
             connection.connectTimeout = 12_000
@@ -206,9 +314,12 @@ class RegistreRepository(private val context: Context) {
         val createdAtMillis = runCatching {
             OffsetDateTime.parse(createdAt).toInstant().toEpochMilli()
         }.getOrDefault(0L)
+        val id = obj.optString("id")
+        val remoteClosed = nullableString(obj, "movement_closed_at")
+        val locallyClosed = isLocallyClosed(id)
 
         return RegisterEntry(
-            id = obj.optString("id"),
+            id = id,
             year = obj.optInt("year"),
             registerType = obj.optString("register_type"),
             officialNumber = if (obj.isNull("official_number")) null else obj.optLong("official_number"),
@@ -227,11 +338,16 @@ class RegistreRepository(private val context: Context) {
             numberR3 = obj.optString("number_r3"),
             departureDate = nullableString(obj, "departure_date"),
             arrivalDate = nullableString(obj, "arrival_date"),
-            annualRight = obj.optInt("annual_right"),
-            consumedRight = obj.optInt("consumed_right"),
+            annualRightYear = obj.optInt("annual_right_year", obj.optInt("annual_right")),
+            consumedRightDetail = obj.optString("consumed_right_detail").ifBlank {
+                obj.optInt("consumed_right").takeIf { it > 0 }?.toString().orEmpty()
+            },
             movementKind = obj.optString("movement_kind"),
             durationDays = obj.optInt("duration_days"),
+            durationIndefinite = obj.optBoolean("duration_indefinite", false),
+            movementClosedAt = if (locallyClosed) "local" else remoteClosed,
             beneficiary = obj.optString("beneficiary"),
+            creatorDeviceId = obj.optString("creator_device_id"),
         )
     }
 
@@ -268,11 +384,14 @@ class RegistreRepository(private val context: Context) {
             numberR3 = payload.optString("numberR3"),
             departureDate = payload.optString("departureDate"),
             arrivalDate = payload.optString("arrivalDate"),
-            annualRight = payload.optInt("annualRight"),
-            consumedRight = payload.optInt("consumedRight"),
+            annualRightYear = payload.optInt("annualRightYear"),
+            consumedRightDetail = payload.optString("consumedRightDetail"),
             movementKind = payload.optString("movementKind"),
             durationDays = payload.optInt("durationDays"),
+            durationIndefinite = payload.optBoolean("durationIndefinite", false),
+            movementClosedAt = if (payload.optBoolean("movementClosed", false)) "local" else "",
             beneficiary = payload.optString("beneficiary"),
+            creatorDeviceId = payload.optString("creatorDeviceId"),
         )
 
     @Synchronized
@@ -284,6 +403,22 @@ class RegistreRepository(private val context: Context) {
                 .put("payload", JSONObject(payload.toString()))
         )
         pendingPrefs.edit().putString(PENDING_KEY, array.toString()).apply()
+    }
+
+    @Synchronized
+    private fun markPendingClosed(entryId: String): Boolean {
+        val source = readPendingArray()
+        var changed = false
+        for (index in 0 until source.length()) {
+            val item = source.getJSONObject(index)
+            if (item.optString("localId") == entryId) {
+                item.getJSONObject("payload").put("movementClosed", true)
+                changed = true
+                break
+            }
+        }
+        if (changed) pendingPrefs.edit().putString(PENDING_KEY, source.toString()).apply()
+        return changed
     }
 
     @Synchronized
@@ -301,6 +436,45 @@ class RegistreRepository(private val context: Context) {
     private fun readPendingArray(): JSONArray =
         runCatching { JSONArray(pendingPrefs.getString(PENDING_KEY, "[]") ?: "[]") }
             .getOrElse { JSONArray() }
+
+    private fun queueClosure(entryId: String) {
+        val set = pendingPrefs.getStringSet(PENDING_CLOSURES_KEY, emptySet()).orEmpty().toMutableSet()
+        set += entryId
+        pendingPrefs.edit().putStringSet(PENDING_CLOSURES_KEY, set).apply()
+        addLocallyClosed(entryId)
+    }
+
+    private suspend fun syncQueuedClosures() {
+        val closures = pendingPrefs.getStringSet(PENDING_CLOSURES_KEY, emptySet()).orEmpty().toList()
+        if (closures.isEmpty()) return
+
+        val completed = mutableListOf<String>()
+        withContext(Dispatchers.IO) {
+            for (entryId in closures) {
+                closeMovementRemote(entryId)
+                completed += entryId
+            }
+        }
+
+        val remaining = closures.toMutableSet().apply { removeAll(completed.toSet()) }
+        pendingPrefs.edit().putStringSet(PENDING_CLOSURES_KEY, remaining).apply()
+        completed.forEach(::removeLocallyClosed)
+    }
+
+    private fun addLocallyClosed(entryId: String) {
+        val set = pendingPrefs.getStringSet(LOCAL_CLOSED_KEY, emptySet()).orEmpty().toMutableSet()
+        set += entryId
+        pendingPrefs.edit().putStringSet(LOCAL_CLOSED_KEY, set).apply()
+    }
+
+    private fun removeLocallyClosed(entryId: String) {
+        val set = pendingPrefs.getStringSet(LOCAL_CLOSED_KEY, emptySet()).orEmpty().toMutableSet()
+        set -= entryId
+        pendingPrefs.edit().putStringSet(LOCAL_CLOSED_KEY, set).apply()
+    }
+
+    private fun isLocallyClosed(entryId: String): Boolean =
+        pendingPrefs.getStringSet(LOCAL_CLOSED_KEY, emptySet()).orEmpty().contains(entryId)
 
     private fun enqueuePendingSync() {
         val constraints = Constraints.Builder()
@@ -322,6 +496,10 @@ class RegistreRepository(private val context: Context) {
 
     companion object {
         private const val PENDING_KEY = "pending"
+        private const val PENDING_CLOSURES_KEY = "pending_closures"
+        private const val LOCAL_CLOSED_KEY = "locally_closed"
+        private const val DEVICE_ID_KEY = "device_id"
+        private const val LAST_COMMUNITY_CURSOR_KEY = "last_created_at"
     }
 }
 
