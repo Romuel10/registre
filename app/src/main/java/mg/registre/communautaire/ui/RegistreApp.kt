@@ -834,13 +834,9 @@ private fun StandardForm(
                                 onClick = {
                                     selectedMovementId = movement.id
                                     beneficiary = movement.beneficiary
-                                    if (label.isBlank()) {
-                                        label = "Message de disponibilité - " +
-                                            movement.beneficiary.ifBlank { movement.label }
-                                    }
-                                    if (origin.isBlank()) {
-                                        origin = "Suite au " + movement.displayNumber
-                                    }
+                                    label = "Message de disponibilité - " +
+                                        movement.beneficiary.ifBlank { movement.label }
+                                    origin = "Suite au " + movement.displayNumber
                                 },
                                 label = {
                                     Text(
@@ -966,12 +962,8 @@ private fun StandardForm(
                                         durationText = permission.durationDays.toString()
                                         durationIndefinite = permission.durationIndefinite
 
-                                        if (origin.isBlank()) {
-                                            origin = "Permission " + permission.displayNumber
-                                        }
-                                        if (label.isBlank()) {
-                                            label = "Déplacement perm - " + permission.fullName
-                                        }
+                                        origin = "Permission " + permission.displayNumber
+                                        label = "Déplacement perm - " + permission.fullName
                                     },
                                     label = {
                                         Text(
