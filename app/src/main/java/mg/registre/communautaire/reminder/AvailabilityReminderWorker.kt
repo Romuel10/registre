@@ -37,11 +37,11 @@ class AvailabilityReminderWorker(
         val isPermission = kind.equals("permission", ignoreCase = true)
         val message = when {
             isPermission && indefinite ->
-                "Vérifier si $person est revenu(e) de permission. Dès son retour, créez dans /2 le message de disponibilité « disponibilité perm »."
+                "Vérifier si $person est revenu(e) de permission. Dès son retour, créez dans /2 ou /4 le message de disponibilité « disponibilité perm »."
             isPermission ->
                 "La permission de $person arrive à son terme" +
                     if (date.isNotBlank()) " ($date)." else "." +
-                    " Créez dans /2 le message de disponibilité « disponibilité perm »."
+                    " Créez dans /2 ou /4 le message de disponibilité « disponibilité perm »."
             indefinite ->
                 "Le déplacement de $person est à durée indéterminée. Vérifier s'il/elle est revenu(e) et préparer le message de disponibilité si nécessaire."
             else ->
@@ -54,7 +54,7 @@ class AvailabilityReminderWorker(
             .setContentTitle(
                 when {
                     isPermission && indefinite -> "Permission : vérifier le retour"
-                    isPermission -> "Message de disponibilité /2 à faire"
+                    isPermission -> "Message de disponibilité perm à faire"
                     indefinite -> "Vérifier le retour de la personne"
                     else -> "Message de disponibilité à préparer"
                 }
