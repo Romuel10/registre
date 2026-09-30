@@ -676,6 +676,7 @@ private fun DataLine(label: String, value: String) {
 private fun StandardForm(
     type: RegisterType,
     saving: Boolean,
+    openMovements: List<RegisterEntry>,
     onSave: (StandardEntryInput) -> Unit,
 ) {
     var pieceNumber by remember { mutableStateOf("") }
@@ -683,99 +684,233 @@ private fun StandardForm(
     var origin by remember { mutableStateOf("") }
     var label by remember { mutableStateOf("") }
     var observation by remember { mutableStateOf("") }
+
+    var messageMode by remember { mutableStateOf(RegisterEntry.MESSAGE_ORDINARY) }
     var isMovement by remember { mutableStateOf(false) }
     var beneficiary by remember { mutableStateOf("") }
     var departureDate by remember { mutableStateOf(LocalDate.now().toString()) }
     var durationText by remember { mutableStateOf("1") }
     var durationIndefinite by remember { mutableStateOf(false) }
+    var selectedMovementId by remember { mutableStateOf("") }
 
     val duration = durationText.toIntOrNull() ?: 0
+    val movementMode = if (type == RegisterType.R2) {
+        messageMode == RegisterEntry.MESSAGE_MOVEMENT
+    } else {
+        isMovement
+    }
+    val availabilityMode =
+        type == RegisterType.R2 && messageMode == RegisterEntry.MESSAGE_AVAILABILITY
+
     val arrival = if (durationIndefinite) null else runCatching {
         MovementRules.arrivalDate(departureDate, duration)
     }.getOrNull()
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(type.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(
-            "Le numéro du cahier sera attribué automatiquement et de façon communautaire.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Card(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+            ),
+        ) {
+            Column(
+                Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    type.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "Le numéro officiel est attribué après contrôle automatique des doublons.",
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+
+        if (type == RegisterType.R2) {
+            Text("Nature de l'enregistrement", fontWeight = FontWeight.SemiBold)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    FilterChip(
+                        selected = messageMode == RegisterEntry.MESSAGE_ORDINARY,
+                        onClick = {
+                            messageMode = RegisterEntry.MESSAGE_ORDINARY
+                            selectedMovementId = ""
+                        },
+                        label = { Text("Pièce ordinaire") },
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = messageMode == RegisterEntry.MESSAGE_MOVEMENT,
+                        onClick = {
+                            messageMode = RegisterEntry.MESSAGE_MOVEMENT
+                            selectedMovementId = ""
+                        },
+                        label = { Text("Message de déplacement") },
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = messageMode == RegisterEntry.MESSAGE_AVAILABILITY,
+                        onClick = {
+                            messageMode = RegisterEntry.MESSAGE_AVAILABILITY
+                            durationIndefinite = false
+                        },
+                        label = { Text("Message de disponibilité") },
+                    )
+                }
+            }
+        }
+
+        if (availabilityMode) {
+            OutlinedCard(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Column(
+                    Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        "Déplacement concerné",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Cette liste montre les messages de déplacement qui n'ont pas encore reçu de message de disponibilité.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    if (openMovements.isEmpty()) {
+                        Text("Aucun déplacement en attente de disponibilité.")
+                    } else {
+                        openMovements.forEach { movement ->
+                            FilterChip(
+                                selected = selectedMovementId == movement.id,
+                                onClick = {
+                                    selectedMovementId = movement.id
+                                    beneficiary = movement.beneficiary
+                                    if (label.isBlank()) {
+                                        label = "Message de disponibilité - " +
+                                            movement.beneficiary.ifBlank { movement.label }
+                                    }
+                                    if (origin.isBlank()) {
+                                        origin = "Suite au " + movement.displayNumber
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        movement.displayNumber + " · " +
+                                            movement.beneficiary.ifBlank { movement.label } +
+                                            if (movement.departureDate.isNotBlank())
+                                                " · départ " + movement.departureDate
+                                            else
+                                                ""
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         FormField(pieceNumber, { pieceNumber = it }, "N° de la pièce")
-        FormField(pieceDate, { pieceDate = it }, "Date de la pièce (AAAA-MM-JJ)")
+        DatePickerField(pieceDate, { pieceDate = it }, "Date de la pièce")
         FormField(origin, { origin = it }, "Origine de la pièce")
         FormField(label, { label = it }, "Libellé ou objet")
         FormField(observation, { observation = it }, "Observation", singleLine = false)
 
-        if (type == RegisterType.R2 || type == RegisterType.R3) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (availabilityMode) {
+            FormField(beneficiary, { beneficiary = it }, "Nom et prénoms")
+        }
+
+        if (type == RegisterType.R3) {
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Message de déplacement", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Activer le suivi du déplacement et les rappels.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = isMovement,
+                        onCheckedChange = { isMovement = it },
+                    )
+                }
+            }
+        }
+
+        if (movementMode) {
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Column(
+                    Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    FormField(beneficiary, { beneficiary = it }, "Nom et prénoms")
+                    DatePickerField(
+                        value = departureDate,
+                        onValue = { departureDate = it },
+                        label = "Date de départ",
+                    )
+
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("Message de déplacement", fontWeight = FontWeight.SemiBold)
+                            Text("Durée indéterminée", fontWeight = FontWeight.Medium)
                             Text(
-                                "Active le suivi du déplacement et le rappel de disponibilité.",
+                                "Rappel hors connexion tous les 3 jours jusqu'au retour.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                        Switch(checked = isMovement, onCheckedChange = { isMovement = it })
+                        Switch(
+                            checked = durationIndefinite,
+                            onCheckedChange = { durationIndefinite = it },
+                        )
                     }
 
-                    if (isMovement) {
-                        FormField(beneficiary, { beneficiary = it }, "Nom et prénoms")
-                        DatePickerField(
-                            value = departureDate,
-                            onValue = { departureDate = it },
-                            label = "Date de départ",
+                    if (!durationIndefinite) {
+                        NumericField(
+                            value = durationText,
+                            onValue = { durationText = it },
+                            label = "Nombre de jours",
                         )
-
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Durée indéterminée", fontWeight = FontWeight.Medium)
-                                Text(
-                                    "Un rappel local reviendra tous les 3 jours jusqu'à confirmation du retour.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Switch(
-                                checked = durationIndefinite,
-                                onCheckedChange = { durationIndefinite = it },
-                            )
-                        }
-
-                        if (!durationIndefinite) {
-                            NumericField(
-                                value = durationText,
-                                onValue = { durationText = it },
-                                label = "Nombre de jours",
-                            )
-                            Text(
-                                "Date d'arrivée calculée : " + (arrival ?: "durée ou date invalide"),
-                                fontWeight = FontWeight.Medium,
-                            )
-                            Text(
-                                "Le jour du départ compte comme jour 1.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        } else {
-                            Text(
-                                "Pas de date d'arrivée imposée. L'application demandera tous les 3 jours si la personne est revenue.",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
+                        Text(
+                            "Date d'arrivée calculée : " +
+                                (arrival ?: "durée ou date invalide"),
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            "Le jour du départ compte comme jour 1.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text(
+                            "Aucune date d'arrivée imposée. Le rappel reste actif jusqu'à confirmation du retour.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                 }
             }
@@ -790,12 +925,30 @@ private fun StandardForm(
                         origin = origin,
                         label = label,
                         observation = observation,
-                        movementKind = if (isMovement) "déplacement" else "",
-                        durationDays = if (isMovement && !durationIndefinite) duration else 0,
-                        durationIndefinite = isMovement && durationIndefinite,
-                        beneficiary = if (isMovement) beneficiary else "",
-                        departureDate = if (isMovement) departureDate else "",
-                        arrivalDate = if (isMovement && !durationIndefinite) arrival.orEmpty() else "",
+                        movementKind = when {
+                            availabilityMode -> "disponibilité"
+                            movementMode -> "déplacement"
+                            else -> ""
+                        },
+                        durationDays =
+                            if (movementMode && !durationIndefinite) duration else 0,
+                        durationIndefinite = movementMode && durationIndefinite,
+                        beneficiary =
+                            if (movementMode || availabilityMode) beneficiary else "",
+                        departureDate = if (movementMode) departureDate else "",
+                        arrivalDate =
+                            if (movementMode && !durationIndefinite)
+                                arrival.orEmpty()
+                            else
+                                "",
+                        messageKind = when {
+                            availabilityMode -> RegisterEntry.MESSAGE_AVAILABILITY
+                            type == RegisterType.R2 && movementMode ->
+                                RegisterEntry.MESSAGE_MOVEMENT
+                            else -> RegisterEntry.MESSAGE_ORDINARY
+                        },
+                        relatedMovementId =
+                            if (availabilityMode) selectedMovementId else "",
                     )
                 )
             },
@@ -805,7 +958,14 @@ private fun StandardForm(
                 origin.isNotBlank() &&
                 label.isNotBlank() &&
                 (
-                    !isMovement ||
+                    !availabilityMode ||
+                    (
+                        selectedMovementId.isNotBlank() &&
+                        beneficiary.isNotBlank()
+                    )
+                ) &&
+                (
+                    !movementMode ||
                     (
                         beneficiary.isNotBlank() &&
                         departureDate.isNotBlank() &&
@@ -814,8 +974,14 @@ private fun StandardForm(
                 ),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(if (saving) "Enregistrement..." else "Enregistrer et réserver le numéro")
+            Text(
+                if (saving)
+                    "Enregistrement..."
+                else
+                    "Enregistrer et réserver le numéro"
+            )
         }
+
         Spacer(Modifier.height(24.dp))
     }
 }
