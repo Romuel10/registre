@@ -30,6 +30,10 @@ data class MainUiState(
     val loading: Boolean = true,
     val saving: Boolean = false,
     val integrityOk: Boolean = true,
+    val counterInitialized: Boolean = false,
+    val lastOfficialNumber: Long = 0L,
+    val nextOfficialNumber: Long = 1L,
+    val counterLoading: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
     val fontScale: Float = 1f,
@@ -57,19 +61,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             restartObservation()
             restartOpenMovements()
             restartAvailablePermissions()
+            refreshCounterStatus()
             startForegroundCommunityAlerts()
         }
     }
 
     fun selectType(type: RegisterType) {
-        _uiState.value = _uiState.value.copy(selectedType = type)
+        _uiState.value = _uiState.value.copy(
+            selectedType = type,
+            counterLoading = true,
+        )
         restartObservation()
         restartOpenMovements()
+        refreshCounterStatus()
     }
 
     fun selectYear(year: Int) {
-        _uiState.value = _uiState.value.copy(selectedYear = year)
+        _uiState.value = _uiState.value.copy(
+            selectedYear = year,
+            counterLoading = true,
+        )
         restartObservation()
+        refreshCounterStatus()
+    }
+
+    fun initializeCounter(lastUsedNumber: Long, onReady: () -> Unit) {
+        val state = _uiState.value
+        if (state.selectedYear != LocalDate.now().year) {
+            _uiState.value = state.copy(
+                error = "Seule l'année courante peut être initialisée."
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                counterLoading = true,
+                error = null,
+            )
+            runCatching {
+                repository.initializeCounter(
+                    year = state.selectedYear,
+                    type = state.selectedType,
+                    lastUsedNumber = lastUsedNumber.coerceAtLeast(0L),
+                )
+            }.onSuccess { status ->
+                val notice = if (status.lastNumber == 0L) {
+                    "Numérotation initialisée : le premier numéro sera 1" +
+                        state.selectedType.code + "."
+                } else {
+                    "Numérotation initialisée après " +
+                        status.lastNumber +
+                        state.selectedType.code +
+                        ". Le prochain numéro sera " +
+                        status.nextNumber +
+                        state.selectedType.code +
+                        "."
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    counterInitialized = status.initialized,
+                    lastOfficialNumber = status.lastNumber,
+                    nextOfficialNumber = status.nextNumber,
+                    counterLoading = false,
+                    notice = notice,
+                )
+                onReady()
+            }.onFailure {
+                _uiState.value = _uiState.value.copy(
+                    counterLoading = false,
+                    error = it.message ?: "Impossible d'initialiser la numérotation."
+                )
+            }
+        }
     }
 
     fun setFontScale(scale: Float) {
@@ -114,6 +178,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 restartObservation()
                 restartOpenMovements()
                 restartAvailablePermissions()
+                refreshCounterStatus()
             }.onFailure {
                 _uiState.value = _uiState.value.copy(
                     saving = false,
@@ -149,6 +214,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 restartObservation()
                 restartOpenMovements()
                 restartAvailablePermissions()
+                refreshCounterStatus()
             }.onFailure {
                 _uiState.value = _uiState.value.copy(
                     saving = false,
@@ -208,6 +274,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         error = it.message ?: "Impossible de clôturer le déplacement."
                     )
                 }
+        }
+    }
+
+    private fun refreshCounterStatus() {
+        if (!_uiState.value.backendConfigured) return
+
+        val year = _uiState.value.selectedYear
+        val type = _uiState.value.selectedType
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(counterLoading = true)
+            runCatching {
+                repository.getCounterStatus(year, type)
+            }.onSuccess { status ->
+                _uiState.value = _uiState.value.copy(
+                    counterInitialized = status.initialized,
+                    lastOfficialNumber = status.lastNumber,
+                    nextOfficialNumber = status.nextNumber,
+                    counterLoading = false,
+                )
+            }.onFailure {
+                _uiState.value = _uiState.value.copy(
+                    counterLoading = false,
+                    error = it.message ?: "Impossible de vérifier la numérotation."
+                )
+            }
         }
     }
 
