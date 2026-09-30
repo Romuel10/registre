@@ -723,9 +723,25 @@ private fun StandardForm(
         else
             "disponibilité"
 
+    val permissionMovement =
+        workflowType &&
+            movementMode &&
+            movementSubtype == "déplacement perm"
+
     val arrival = if (durationIndefinite) null else runCatching {
         MovementRules.arrivalDate(departureDate, duration)
     }.getOrNull()
+
+    val effectiveBeneficiary =
+        if (permissionMovement) selectedPermission?.fullName.orEmpty() else beneficiary
+    val effectiveDepartureDate =
+        if (permissionMovement) selectedPermission?.departureDate.orEmpty() else departureDate
+    val effectiveDuration =
+        if (permissionMovement) selectedPermission?.durationDays ?: 0 else duration
+    val effectiveIndefinite =
+        if (permissionMovement) selectedPermission?.durationIndefinite ?: false else durationIndefinite
+    val effectiveArrival =
+        if (permissionMovement) permissionArrival.orEmpty() else arrival.orEmpty()
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -901,64 +917,162 @@ private fun StandardForm(
                             item {
                                 FilterChip(
                                     selected = movementSubtype == "déplacement",
-                                    onClick = { movementSubtype = "déplacement" },
+                                    onClick = {
+                                        movementSubtype = "déplacement"
+                                        selectedPermissionId = ""
+                                    },
                                     label = { Text("Déplacement") },
                                 )
                             }
                             item {
                                 FilterChip(
                                     selected = movementSubtype == "déplacement perm",
-                                    onClick = { movementSubtype = "déplacement perm" },
+                                    onClick = {
+                                        movementSubtype = "déplacement perm"
+                                        durationIndefinite = false
+                                    },
                                     label = { Text("Déplacement perm") },
                                 )
                             }
                         }
                     }
-                    FormField(beneficiary, { beneficiary = it }, "Nom et prénoms")
-                    DatePickerField(
-                        value = departureDate,
-                        onValue = { departureDate = it },
-                        label = "Date de départ",
-                    )
 
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Durée indéterminée", fontWeight = FontWeight.Medium)
-                            Text(
-                                "Rappel hors connexion tous les 3 jours jusqu'au retour.",
-                                style = MaterialTheme.typography.bodySmall,
+                    if (permissionMovement) {
+                        Text(
+                            "Permission /3.PERM concernée",
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "Seules les permissions qui ne possèdent encore aucun message de déplacement dans /2 ou /4 sont proposées.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        if (availablePermissions.isEmpty()) {
+                            OutlinedCard(Modifier.fillMaxWidth()) {
+                                Text(
+                                    "Aucune permission /3.PERM en attente de message de déplacement.",
+                                    modifier = Modifier.padding(14.dp),
+                                )
+                            }
+                        } else {
+                            availablePermissions.forEach { permission ->
+                                FilterChip(
+                                    selected = selectedPermissionId == permission.id,
+                                    onClick = {
+                                        selectedPermissionId = permission.id
+                                        beneficiary = permission.fullName
+                                        departureDate = permission.departureDate
+                                        durationText = permission.durationDays.toString()
+                                        durationIndefinite = permission.durationIndefinite
+
+                                        if (origin.isBlank()) {
+                                            origin = "Permission " + permission.displayNumber
+                                        }
+                                        if (label.isBlank()) {
+                                            label = "Déplacement perm - " + permission.fullName
+                                        }
+                                    },
+                                    label = {
+                                        Text(
+                                            permission.displayNumber + " · " +
+                                                permission.fullName +
+                                                if (permission.matricule.isNotBlank())
+                                                    " · " + permission.matricule
+                                                else
+                                                    ""
+                                        )
+                                    },
+                                )
+                            }
+                        }
+
+                        selectedPermission?.let { permission ->
+                            OutlinedCard(
+                                Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Column(
+                                    Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        "Données reprises automatiquement",
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    DataLine("Nom et prénoms", permission.fullName)
+                                    DataLine("Grade", permission.grade)
+                                    DataLine("Matricule", permission.matricule)
+                                    DataLine("Départ", permission.departureDate)
+                                    DataLine(
+                                        "Durée",
+                                        if (permission.durationIndefinite)
+                                            "Indéterminée"
+                                        else
+                                            permission.durationDays.toString() + " jour(s)",
+                                    )
+                                    DataLine(
+                                        "Arrivée calculée",
+                                        if (permission.durationIndefinite)
+                                            "Non déterminée"
+                                        else
+                                            permissionArrival.orEmpty(),
+                                    )
+                                    Text(
+                                        "La date d'arrivée n'est pas ressaisie : elle est recalculée depuis la date de départ et le nombre de jours du /3.PERM.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        FormField(beneficiary, { beneficiary = it }, "Nom et prénoms")
+                        DatePickerField(
+                            value = departureDate,
+                            onValue = { departureDate = it },
+                            label = "Date de départ",
+                        )
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Durée indéterminée", fontWeight = FontWeight.Medium)
+                                Text(
+                                    "Rappel hors connexion tous les 3 jours jusqu'au retour.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Switch(
+                                checked = durationIndefinite,
+                                onCheckedChange = { durationIndefinite = it },
                             )
                         }
-                        Switch(
-                            checked = durationIndefinite,
-                            onCheckedChange = { durationIndefinite = it },
-                        )
-                    }
 
-                    if (!durationIndefinite) {
-                        NumericField(
-                            value = durationText,
-                            onValue = { durationText = it },
-                            label = "Nombre de jours",
-                        )
-                        Text(
-                            "Date d'arrivée calculée : " +
-                                (arrival ?: "durée ou date invalide"),
-                            fontWeight = FontWeight.Medium,
-                        )
-                        Text(
-                            "Le jour du départ compte comme jour 1.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    } else {
-                        Text(
-                            "Aucune date d'arrivée imposée. Le rappel reste actif jusqu'à confirmation du retour.",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        if (!durationIndefinite) {
+                            NumericField(
+                                value = durationText,
+                                onValue = { durationText = it },
+                                label = "Nombre de jours",
+                            )
+                            Text(
+                                "Date d'arrivée calculée : " +
+                                    (arrival ?: "durée ou date invalide"),
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                "Le jour du départ compte comme jour 1.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        } else {
+                            Text(
+                                "Aucune date d'arrivée imposée. Le rappel reste actif jusqu'à confirmation du retour.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
             }
