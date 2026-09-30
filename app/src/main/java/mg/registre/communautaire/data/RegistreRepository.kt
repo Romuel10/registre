@@ -135,7 +135,7 @@ class RegistreRepository(private val context: Context) {
 
     suspend fun reserveOfficialNumber(entryId: String) {
         ensureSignedIn()
-        db.awaitPendingWrites().await()
+        db.waitForPendingWrites().await()
 
         val entryRef = db.collection("entries").document(entryId)
         db.runTransaction { transaction ->
