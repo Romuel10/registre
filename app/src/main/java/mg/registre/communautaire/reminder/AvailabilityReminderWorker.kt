@@ -8,6 +8,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import mg.registre.communautaire.R
+import mg.registre.communautaire.domain.DateFormats
 import kotlin.math.absoluteValue
 
 class AvailabilityReminderWorker(
@@ -38,7 +39,10 @@ class AvailabilityReminderWorker(
             kind.equals("permission", ignoreCase = true) ||
                 kind.equals("déplacement perm", ignoreCase = true)
 
-        val datePart = if (date.isNotBlank()) " ($date)." else "."
+        val datePart = if (date.isNotBlank())
+            " (" + DateFormats.display(date) + ")."
+        else
+            "."
 
         val message = when {
             isPermissionFlow && indefinite ->
