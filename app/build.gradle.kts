@@ -11,8 +11,8 @@ android {
         applicationId = "mg.registre.communautaire"
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.5.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"https://gmlofgsgnbbcbefogpww.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_5TlVWknK1BODxwWqw4efEA_y4DI-JRP\"")
