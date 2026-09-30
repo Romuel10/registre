@@ -37,51 +37,23 @@ Un rappel local Android est programmé le matin de la date d'arrivée pour prép
 - WorkManager
 - GitHub Actions pour construire l'APK
 
-## Firebase utilisé
+## Firebase
 
-Projet Firebase prévu pour cette application :
+Le projet est relié à :
 
-- Project ID : `archive-9631f`
-- Package Android de l'application : `mg.registre.communautaire`
+- Firebase Project ID : `archive-9631f`
+- Firebase Android App ID : `1:439782274545:android:2abb1acb3a3d5622798050`
+- Package Android enregistré dans Firebase : `mg.registre.communautair`
 
-La configuration reçue initialement correspond à une **application Web Firebase**. Son App ID contient `:web:` et ne doit pas être utilisé comme App ID Android.
+Le fichier `app/google-services.json` est intégré et le plug-in `com.google.gms.google-services` est activé. Il n'est donc plus nécessaire d'ajouter manuellement les trois anciennes variables Firebase au workflow GitHub.
 
-### Enregistrer l'application Android dans Firebase
+### À activer dans Firebase Console
 
-Dans Firebase Console :
+Pour que l'application fonctionne réellement sur plusieurs téléphones :
 
-1. Ouvrir le projet `archive-9631f`.
-2. Aller dans **Paramètres du projet > Vos applications**.
-3. Ajouter une application **Android**.
-4. Saisir exactement le package :
-   `mg.registre.communautaire`
-5. Enregistrer l'application.
-6. Copier l'**App ID Android**, au format :
-   `1:...:android:...`
-
-Le projet peut fonctionner avec l'initialisation programmatique déjà présente ; il faut fournir :
-
-```
-FIREBASE_API_KEY=...
-FIREBASE_APPLICATION_ID=1:...:android:...
-FIREBASE_PROJECT_ID=archive-9631f
-```
-
-Puis activer dans Firebase :
-
-1. **Authentication > Sign-in method > Anonymous**
-2. **Firestore Database**
-3. Déployer les règles présentes dans `firestore.rules`
-
-### GitHub Actions
-
-Le workflow lit les variables suivantes :
-
-- `FIREBASE_API_KEY`
-- `FIREBASE_APPLICATION_ID`
-- `FIREBASE_PROJECT_ID`
-
-Une fois ces trois valeurs définies pour GitHub Actions, chaque push sur `main` teste et construit automatiquement l'APK connecté à Firebase.
+1. **Authentication > Sign-in method > Anonymous** : activer.
+2. **Firestore Database** : créer la base si ce n'est pas déjà fait.
+3. Déployer les règles de sécurité contenues dans `firestore.rules`.
 
 ## Construction
 
@@ -92,6 +64,8 @@ gradle :app:assembleDebug
 ```
 
 L'APK est généré dans `app/build/outputs/apk/debug/`.
+
+GitHub Actions exécute aussi les tests unitaires et produit automatiquement un artefact APK.
 
 ## Sécurité fonctionnelle
 
