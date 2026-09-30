@@ -84,8 +84,8 @@ fun RegistreApp(
     var page by remember { mutableStateOf(Page.LIST) }
     var query by remember { mutableStateOf("") }
 
-    if (!state.firebaseConfigured) {
-        FirebaseSetupScreen()
+    if (!state.backendConfigured) {
+        SupabaseSetupScreen()
         return
     }
 
@@ -188,7 +188,7 @@ fun RegistreApp(
 }
 
 @Composable
-private fun FirebaseSetupScreen() {
+private fun SupabaseSetupScreen() {
     Box(
         Modifier.fillMaxSize().padding(28.dp),
         contentAlignment = Alignment.Center,
@@ -198,12 +198,12 @@ private fun FirebaseSetupScreen() {
                 Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Configuration Firebase requise", style = MaterialTheme.typography.headlineSmall)
+                Text("Configuration Supabase requise", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "L'application est construite, mais elle doit être reliée à votre projet Firebase pour partager les numéros entre téléphones."
+                    "L'application doit être reliée à Supabase pour partager les numéros officiels entre les téléphones."
                 )
                 Text(
-                    "Renseignez FIREBASE_API_KEY, FIREBASE_APPLICATION_ID et FIREBASE_PROJECT_ID, activez l'authentification anonyme et Firestore, puis reconstruisez l'APK."
+                    "Vérifiez SUPABASE_URL et SUPABASE_PUBLISHABLE_KEY puis reconstruisez l'APK."
                 )
             }
         }
