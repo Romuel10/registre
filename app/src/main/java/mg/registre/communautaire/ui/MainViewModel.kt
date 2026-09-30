@@ -26,6 +26,7 @@ data class MainUiState(
     val selectedType: RegisterType = RegisterType.R2,
     val entries: List<RegisterEntry> = emptyList(),
     val openMovements: List<RegisterEntry> = emptyList(),
+    val availablePermissions: List<RegisterEntry> = emptyList(),
     val loading: Boolean = true,
     val saving: Boolean = false,
     val integrityOk: Boolean = true,
@@ -48,12 +49,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var observationJob: Job? = null
     private var openMovementsJob: Job? = null
+    private var availablePermissionsJob: Job? = null
 
     init {
         _uiState.value = _uiState.value.copy(loading = false)
         if (_uiState.value.backendConfigured) {
             restartObservation()
             restartOpenMovements()
+            restartAvailablePermissions()
             startForegroundCommunityAlerts()
         }
     }
@@ -61,6 +64,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun selectType(type: RegisterType) {
         _uiState.value = _uiState.value.copy(selectedType = type)
         restartObservation()
+        restartOpenMovements()
     }
 
     fun selectYear(year: Int) {
@@ -109,6 +113,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onSaved()
                 restartObservation()
                 restartOpenMovements()
+                restartAvailablePermissions()
             }.onFailure {
                 _uiState.value = _uiState.value.copy(
                     saving = false,
@@ -143,6 +148,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onSaved()
                 restartObservation()
                 restartOpenMovements()
+                restartAvailablePermissions()
             }.onFailure {
                 _uiState.value = _uiState.value.copy(
                     saving = false,
@@ -239,9 +245,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun restartOpenMovements() {
         if (!_uiState.value.backendConfigured) return
         openMovementsJob?.cancel()
+
+        val type = _uiState.value.selectedType
+        if (type != RegisterType.R2 && type != RegisterType.R4) {
+            _uiState.value = _uiState.value.copy(openMovements = emptyList())
+            return
+        }
+
         openMovementsJob = viewModelScope.launch {
-            repository.observeOpenMovements(LocalDate.now().year).collect { movements ->
+            repository.observeOpenMovements(LocalDate.now().year, type).collect { movements ->
                 _uiState.value = _uiState.value.copy(openMovements = movements)
+            }
+        }
+    }
+
+    private fun restartAvailablePermissions() {
+        if (!_uiState.value.backendConfigured) return
+        availablePermissionsJob?.cancel()
+        availablePermissionsJob = viewModelScope.launch {
+            repository.observeAvailablePermissions(LocalDate.now().year).collect { permissions ->
+                _uiState.value = _uiState.value.copy(availablePermissions = permissions)
             }
         }
     }
