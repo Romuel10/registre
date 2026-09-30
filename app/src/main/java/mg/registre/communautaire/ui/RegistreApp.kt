@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
+import mg.registre.communautaire.domain.DateFormats
 import mg.registre.communautaire.domain.MovementRules
 import mg.registre.communautaire.domain.PermissionEntryInput
 import mg.registre.communautaire.domain.RegisterEntry
@@ -89,11 +90,14 @@ fun RegistreApp(
     onCloseMovement: (String) -> Unit,
     onCancelEntry: (String, String) -> Unit,
     onDeleteEntry: (String) -> Unit,
+    onInitializeCounter: (Long, () -> Unit) -> Unit,
     onClearError: () -> Unit,
     onClearNotice: () -> Unit,
 ) {
     var page by remember { mutableStateOf(Page.LIST) }
     var query by remember { mutableStateOf("") }
+    var showCounterSetup by remember { mutableStateOf(false) }
+    var lastUsedNumberText by remember { mutableStateOf("") }
 
     if (!state.backendConfigured) {
         SupabaseSetupScreen()
@@ -118,6 +122,86 @@ fun RegistreApp(
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = onClearNotice) { Text("D'accord") }
+            },
+        )
+    }
+
+    if (showCounterSetup) {
+        AlertDialog(
+            onDismissRequest = { showCounterSetup = false },
+            title = {
+                Text(
+                    "Initialiser " + state.selectedType.code +
+                        " pour " + state.selectedYear
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Avant le premier numéro de ce cahier, indiquez le dernier numéro déjà utilisé avant l'application."
+                    )
+                    Text(
+                        "Exemple : si le dernier numéro est 281, saisissez 281 et le prochain sera automatiquement 282" +
+                            state.selectedType.code + "."
+                    )
+                    NumericField(
+                        value = lastUsedNumberText,
+                        onValue = { lastUsedNumberText = it },
+                        label = "Dernier numéro déjà utilisé",
+                    )
+                    Text(
+                        "Si ce cahier commence dans l'application, choisissez « Début à 1 » ou « Ignorer » : le premier numéro sera 1" +
+                            state.selectedType.code + ".",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !state.counterLoading &&
+                        (lastUsedNumberText.toLongOrNull()?.let { it >= 0L } == true),
+                    onClick = {
+                        val last = lastUsedNumberText.toLongOrNull() ?: return@TextButton
+                        onInitializeCounter(last) {
+                            showCounterSetup = false
+                            lastUsedNumberText = ""
+                            page = Page.FORM
+                        }
+                    },
+                ) {
+                    Text("Valider")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        enabled = !state.counterLoading,
+                        onClick = {
+                            onInitializeCounter(0L) {
+                                showCounterSetup = false
+                                lastUsedNumberText = ""
+                                page = Page.FORM
+                            }
+                        },
+                    ) {
+                        Text("Début à 1")
+                    }
+                    TextButton(
+                        enabled = !state.counterLoading,
+                        onClick = {
+                            onInitializeCounter(0L) {
+                                showCounterSetup = false
+                                lastUsedNumberText = ""
+                                page = Page.FORM
+                            }
+                        },
+                    ) {
+                        Text("Ignorer")
+                    }
+                }
             },
         )
     }
@@ -163,10 +247,18 @@ fun RegistreApp(
             if (
                 page == Page.LIST &&
                 state.selectedYear == LocalDate.now().year &&
-                state.integrityOk
+                state.integrityOk &&
+                !state.counterLoading
             ) {
                 ExtendedFloatingActionButton(
-                    onClick = { page = Page.FORM },
+                    onClick = {
+                        if (state.counterInitialized) {
+                            page = Page.FORM
+                        } else {
+                            lastUsedNumberText = ""
+                            showCounterSetup = true
+                        }
+                    },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
                     text = { Text("Nouvelle entrée") },
                 )
@@ -384,7 +476,7 @@ private fun RegisterListPage(
 
 @Composable
 private fun SummaryCard(state: MainUiState) {
-    val last = state.entries.mapNotNull { it.officialNumber }.maxOrNull()
+    val last = state.lastOfficialNumber.takeIf { state.counterInitialized && it > 0L }
     val pending = state.entries.count { it.officialNumber == null }
     val cancelled = state.entries.count { it.status == RegisterEntry.STATUS_CANCELLED }
 
@@ -404,6 +496,13 @@ private fun SummaryCard(state: MainUiState) {
                     last?.let { it.toString() + state.selectedType.code } ?: "Aucun",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    if (state.counterInitialized)
+                        "Prochain : " + state.nextOfficialNumber + state.selectedType.code
+                    else
+                        "À initialiser avant la première saisie",
+                    style = MaterialTheme.typography.labelMedium,
                 )
                 Text(
                     if (state.integrityOk) "Intégrité numérotation : OK" else "Intégrité numérotation : anomalie",
@@ -587,7 +686,7 @@ private fun EntryCard(
                 DataLine("Nom et prénoms", entry.fullName)
                 DataLine("Matricule", entry.matricule)
                 DataLine("N° /3", entry.numberR3)
-                DataLine("Départ", entry.departureDate)
+                DataLine("Départ", DateFormats.display(entry.departureDate))
                 if (entry.durationIndefinite) {
                     DataLine("Durée", "Indéterminée")
                     DataLine(
@@ -598,7 +697,7 @@ private fun EntryCard(
                             "Retour confirmé",
                     )
                 } else {
-                    DataLine("Arrivée", entry.arrivalDate)
+                    DataLine("Arrivée", DateFormats.display(entry.arrivalDate))
                     if (entry.durationDays > 0) {
                         DataLine("Durée", entry.durationDays.toString() + " jour(s)")
                     }
@@ -609,7 +708,7 @@ private fun EntryCard(
                 DataLine("Droit consommé", entry.consumedRightDetail)
             } else {
                 DataLine("N° de la pièce", entry.pieceNumber)
-                DataLine("Date de la pièce", entry.pieceDate)
+                DataLine("Date de la pièce", DateFormats.display(entry.pieceDate))
                 DataLine("Origine de la pièce", entry.origin)
                 DataLine("Libellé ou objet", entry.label)
                 DataLine("Observation", entry.observation)
@@ -850,7 +949,7 @@ private fun StandardForm(
                                             ) +
                                             (
                                                 if (movement.departureDate.isNotBlank())
-                                                    " · départ " + movement.departureDate
+                                                    " · départ " + DateFormats.display(movement.departureDate)
                                                 else
                                                     ""
                                             )
@@ -995,7 +1094,7 @@ private fun StandardForm(
                                     DataLine("Nom et prénoms", permission.fullName)
                                     DataLine("Grade", permission.grade)
                                     DataLine("Matricule", permission.matricule)
-                                    DataLine("Départ", permission.departureDate)
+                                    DataLine("Départ", DateFormats.display(permission.departureDate))
                                     DataLine(
                                         "Durée",
                                         if (permission.durationIndefinite)
@@ -1008,7 +1107,7 @@ private fun StandardForm(
                                         if (permission.durationIndefinite)
                                             "Non déterminée"
                                         else
-                                            permissionArrival.orEmpty(),
+                                            DateFormats.display(permissionArrival.orEmpty()),
                                     )
                                     Text(
                                         "La date d'arrivée n'est pas ressaisie : elle est recalculée depuis la date de départ et le nombre de jours du /3.PERM.",
@@ -1226,7 +1325,10 @@ private fun PermissionForm(
             OutlinedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Date d'arrivée", style = MaterialTheme.typography.labelLarge)
-                    Text(arrival ?: "Durée invalide", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        arrival?.let(DateFormats::display) ?: "Durée invalide",
+                        style = MaterialTheme.typography.titleLarge,
+                    )
                     Text("Le jour du départ est le jour 1.", style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -1353,7 +1455,7 @@ private fun DatePickerField(
             horizontalAlignment = Alignment.Start,
         ) {
             Text(label, style = MaterialTheme.typography.labelMedium)
-            Text(value, style = MaterialTheme.typography.bodyLarge)
+            Text(DateFormats.display(value), style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
