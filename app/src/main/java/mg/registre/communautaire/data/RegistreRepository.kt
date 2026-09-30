@@ -63,14 +63,17 @@ class RegistreRepository(private val context: Context) {
         }
     }
 
-    fun observeOpenMovements(year: Int): Flow<List<RegisterEntry>> = flow {
+    fun observeOpenMovements(year: Int, type: RegisterType): Flow<List<RegisterEntry>> = flow {
         var last = emptyList<RegisterEntry>()
 
         while (currentCoroutineContext().isActive) {
             val current = runCatching {
                 withContext(Dispatchers.IO) {
-                    val remote = fetchRemoteEntries(year, RegisterType.R2)
-                    val pending = loadPendingEntries(year, RegisterType.R2)
+                    if (type != RegisterType.R2 && type != RegisterType.R4) {
+                        return@withContext emptyList()
+                    }
+                    val remote = fetchRemoteEntries(year, type)
+                    val pending = loadPendingEntries(year, type)
                     val all = remote + pending
                     val completedMovementIds = all
                         .filter {
@@ -88,6 +91,47 @@ class RegistreRepository(private val context: Context) {
                             !it.isDeleted &&
                             it.id !in completedMovementIds
                     }.sortedByDescending { it.createdAtMillis }
+                }
+            }.getOrElse { last }
+
+            last = current
+            emit(current)
+            delay(4_000)
+        }
+    }
+
+    fun observeAvailablePermissions(year: Int): Flow<List<RegisterEntry>> = flow {
+        var last = emptyList<RegisterEntry>()
+
+        while (currentCoroutineContext().isActive) {
+            val current = runCatching {
+                withContext(Dispatchers.IO) {
+                    val permissions = fetchRemoteEntries(year, RegisterType.R3PERM)
+                        .filter {
+                            it.status == RegisterEntry.STATUS_NUMBERED &&
+                                !it.isDeleted &&
+                                it.officialNumber != null
+                        }
+
+                    val movements = listOf(RegisterType.R2, RegisterType.R4)
+                        .flatMap { registerType ->
+                            fetchRemoteEntries(year, registerType) +
+                                loadPendingEntries(year, registerType)
+                        }
+                        .filter {
+                            it.messageKind == RegisterEntry.MESSAGE_MOVEMENT &&
+                                it.status != RegisterEntry.STATUS_CANCELLED &&
+                                !it.isDeleted &&
+                                it.relatedPermissionId.isNotBlank()
+                        }
+
+                    val usedPermissionIds = movements
+                        .map { it.relatedPermissionId }
+                        .toSet()
+
+                    permissions
+                        .filter { it.id !in usedPermissionIds }
+                        .sortedByDescending { it.createdAtMillis }
                 }
             }.getOrElse { last }
 
