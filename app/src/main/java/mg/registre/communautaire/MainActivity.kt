@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
@@ -57,7 +58,7 @@ class MainActivity : ComponentActivity() {
                         ) {
                             CircularProgressIndicator(
                                 color = MaterialTheme.colorScheme.primary,
-                                strokeWidth = androidx.compose.ui.unit.dp(4f),
+                                strokeWidth = 4.dp,
                             )
                         }
                     }
