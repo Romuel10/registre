@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
                         onFontScale = viewModel::setFontScale,
                         onSaveStandard = viewModel::saveStandard,
                         onSavePermission = viewModel::savePermission,
+                        onCloseMovement = viewModel::closeMovement,
                         onClearError = viewModel::clearError,
                     )
                 }
