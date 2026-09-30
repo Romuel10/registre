@@ -202,6 +202,7 @@ fun RegistreApp(
                             type = state.selectedType,
                             saving = state.saving,
                             openMovements = state.openMovements,
+                            availablePermissions = state.availablePermissions,
                             onSave = { input ->
                                 onSaveStandard(input) { page = Page.LIST }
                             },
@@ -677,6 +678,7 @@ private fun StandardForm(
     type: RegisterType,
     saving: Boolean,
     openMovements: List<RegisterEntry>,
+    availablePermissions: List<RegisterEntry>,
     onSave: (StandardEntryInput) -> Unit,
 ) {
     var pieceNumber by remember { mutableStateOf("") }
@@ -693,16 +695,28 @@ private fun StandardForm(
     var durationText by remember { mutableStateOf("1") }
     var durationIndefinite by remember { mutableStateOf(false) }
     var selectedMovementId by remember { mutableStateOf("") }
+    var selectedPermissionId by remember { mutableStateOf("") }
 
+    val workflowType = type == RegisterType.R2 || type == RegisterType.R4
     val duration = durationText.toIntOrNull() ?: 0
-    val movementMode = if (type == RegisterType.R2) {
+    val movementMode = if (workflowType) {
         messageMode == RegisterEntry.MESSAGE_MOVEMENT
     } else {
         isMovement
     }
     val availabilityMode =
-        type == RegisterType.R2 && messageMode == RegisterEntry.MESSAGE_AVAILABILITY
+        workflowType && messageMode == RegisterEntry.MESSAGE_AVAILABILITY
     val selectedMovement = openMovements.firstOrNull { it.id == selectedMovementId }
+    val selectedPermission = availablePermissions.firstOrNull { it.id == selectedPermissionId }
+    val permissionArrival = selectedPermission?.let { permission ->
+        if (permission.durationIndefinite) {
+            null
+        } else {
+            runCatching {
+                MovementRules.arrivalDate(permission.departureDate, permission.durationDays)
+            }.getOrNull() ?: permission.arrivalDate
+        }
+    }
     val availabilitySubtype =
         if (selectedMovement?.movementKind == "déplacement perm")
             "disponibilité perm"
@@ -740,7 +754,7 @@ private fun StandardForm(
             }
         }
 
-        if (type == RegisterType.R2) {
+        if (workflowType) {
             Text("Nature de l'enregistrement", fontWeight = FontWeight.SemiBold)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
@@ -881,7 +895,7 @@ private fun StandardForm(
                     Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    if (type == RegisterType.R2) {
+                    if (workflowType) {
                         Text("Type de déplacement", fontWeight = FontWeight.SemiBold)
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             item {
