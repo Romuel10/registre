@@ -1,9 +1,0 @@
-# Projet Firebase : archive-9631f
-# Utiliser la clé API du projet Firebase.
-FIREBASE_API_KEY=
-
-# IMPORTANT : utiliser l'App ID ANDROID (format 1:...:android:...)
-# et non l'App ID Web (format 1:...:web:...).
-FIREBASE_APPLICATION_ID=
-
-FIREBASE_PROJECT_ID=archive-9631f
