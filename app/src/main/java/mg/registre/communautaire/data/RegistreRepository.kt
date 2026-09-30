@@ -25,6 +25,7 @@ import mg.registre.communautaire.domain.RegisterEntry
 import mg.registre.communautaire.domain.RegisterType
 import mg.registre.communautaire.domain.StandardEntryInput
 import mg.registre.communautaire.reminder.NumberReservationWorker
+import mg.registre.communautaire.reminder.PermissionWorkflowNotifier
 import mg.registre.communautaire.reminder.ReminderScheduler
 import org.json.JSONArray
 import org.json.JSONObject
@@ -62,6 +63,50 @@ class RegistreRepository(private val context: Context) {
         }
     }
 
+    fun observeOpenMovements(year: Int): Flow<List<RegisterEntry>> = flow {
+        var last = emptyList<RegisterEntry>()
+
+        while (currentCoroutineContext().isActive) {
+            val current = runCatching {
+                withContext(Dispatchers.IO) {
+                    val remote = fetchRemoteEntries(year, RegisterType.R2)
+                    val pending = loadPendingEntries(year, RegisterType.R2)
+                    val all = remote + pending
+                    val completedMovementIds = all
+                        .filter {
+                            it.messageKind == RegisterEntry.MESSAGE_AVAILABILITY &&
+                                it.status != RegisterEntry.STATUS_CANCELLED &&
+                                !it.isDeleted
+                        }
+                        .map { it.relatedMovementId }
+                        .filter { it.isNotBlank() }
+                        .toSet()
+
+                    all.filter {
+                        it.messageKind == RegisterEntry.MESSAGE_MOVEMENT &&
+                            it.status != RegisterEntry.STATUS_CANCELLED &&
+                            !it.isDeleted &&
+                            it.id !in completedMovementIds
+                    }.sortedByDescending { it.createdAtMillis }
+                }
+            }.getOrElse { last }
+
+            last = current
+            emit(current)
+            delay(4_000)
+        }
+    }
+
+    suspend fun checkIntegrity(year: Int, type: RegisterType): Boolean = withContext(Dispatchers.IO) {
+        val body = JSONObject()
+            .put("p_year", year)
+            .put("p_register_type", type.code)
+            .toString()
+        val response = request("POST", "/rest/v1/rpc/registre_integrity_check", body)
+        val obj = JSONObject(response)
+        obj.optBoolean("ok", false)
+    }
+
     suspend fun createStandard(year: Int, type: RegisterType, input: StandardEntryInput): String {
         val entryId = UUID.randomUUID().toString()
         val payload = JSONObject()
@@ -80,17 +125,30 @@ class RegistreRepository(private val context: Context) {
             .put("beneficiary", input.beneficiary.trim())
             .put("departureDate", input.departureDate)
             .put("arrivalDate", input.arrivalDate)
+            .put("messageKind", input.messageKind)
+            .put("relatedMovementId", input.relatedMovementId)
+            .put("relatedPermissionId", input.relatedPermissionId)
 
-        createOrQueue(entryId, payload)
-        scheduleMovementReminder(
-            entryId = entryId,
-            person = input.beneficiary.ifBlank { input.label },
-            kind = input.movementKind.ifBlank { "déplacement" },
-            departureDate = input.departureDate,
-            arrivalDate = input.arrivalDate,
-            durationDays = input.durationDays,
-            indefinite = input.durationIndefinite,
-        )
+        if (input.messageKind == RegisterEntry.MESSAGE_AVAILABILITY) {
+            withContext(Dispatchers.IO) { postEntry(payload) }
+            if (input.relatedMovementId.isNotBlank()) {
+                ReminderScheduler.cancelAvailability(context, input.relatedMovementId)
+            }
+        } else {
+            createOrQueue(entryId, payload)
+        }
+
+        if (input.messageKind == RegisterEntry.MESSAGE_MOVEMENT || input.movementKind.isNotBlank()) {
+            scheduleMovementReminder(
+                entryId = entryId,
+                person = input.beneficiary.ifBlank { input.label },
+                kind = input.movementKind.ifBlank { "déplacement" },
+                departureDate = input.departureDate,
+                arrivalDate = input.arrivalDate,
+                durationDays = input.durationDays,
+                indefinite = input.durationIndefinite,
+            )
+        }
         return entryId
     }
 
@@ -112,9 +170,11 @@ class RegistreRepository(private val context: Context) {
             .put("durationDays", input.durationDays)
             .put("durationIndefinite", input.durationIndefinite)
             .put("movementKind", "permission")
+            .put("messageKind", RegisterEntry.MESSAGE_PERMISSION)
             .put("beneficiary", input.fullName.trim())
 
         createOrQueue(entryId, payload)
+
         scheduleMovementReminder(
             entryId = entryId,
             person = input.fullName,
@@ -124,7 +184,58 @@ class RegistreRepository(private val context: Context) {
             durationDays = input.durationDays,
             indefinite = input.durationIndefinite,
         )
+
+        PermissionWorkflowNotifier.notifyMovementRequired(
+            context = context,
+            permissionId = entryId,
+            person = input.fullName,
+        )
         return entryId
+    }
+
+    suspend fun cancelEntry(entryId: String, reason: String) {
+        if (removePendingIfPresent(entryId)) {
+            ReminderScheduler.cancelAvailability(context, entryId)
+            return
+        }
+
+        val before = withContext(Dispatchers.IO) { fetchEntryById(entryId) }
+        val body = JSONObject()
+            .put("p_entry_id", entryId)
+            .put("p_device_id", deviceId)
+            .put("p_reason", reason.trim())
+            .toString()
+
+        withContext(Dispatchers.IO) {
+            request("POST", "/rest/v1/rpc/registre_cancel_entry", body)
+        }
+
+        ReminderScheduler.cancelAvailability(context, entryId)
+        if (before?.messageKind == RegisterEntry.MESSAGE_AVAILABILITY) {
+            restoreMovementReminder(before.relatedMovementId)
+        }
+    }
+
+    suspend fun deleteEntry(entryId: String) {
+        if (removePendingIfPresent(entryId)) {
+            ReminderScheduler.cancelAvailability(context, entryId)
+            return
+        }
+
+        val before = withContext(Dispatchers.IO) { fetchEntryById(entryId) }
+        val body = JSONObject()
+            .put("p_entry_id", entryId)
+            .put("p_device_id", deviceId)
+            .toString()
+
+        withContext(Dispatchers.IO) {
+            request("POST", "/rest/v1/rpc/registre_delete_entry", body)
+        }
+
+        ReminderScheduler.cancelAvailability(context, entryId)
+        if (before?.messageKind == RegisterEntry.MESSAGE_AVAILABILITY) {
+            restoreMovementReminder(before.relatedMovementId)
+        }
     }
 
     suspend fun closeMovement(entryId: String) {
@@ -183,6 +294,7 @@ class RegistreRepository(private val context: Context) {
                 "?select=*" +
                 "&created_at=gt.$encodedCursor" +
                 "&creator_device_id=neq.$encodedDevice" +
+                "&deleted_at=is.null" +
                 "&order=created_at.asc"
 
             val response = request("GET", path, null)
@@ -232,6 +344,22 @@ class RegistreRepository(private val context: Context) {
         }
     }
 
+    private suspend fun restoreMovementReminder(movementId: String) {
+        if (movementId.isBlank()) return
+        val movement = withContext(Dispatchers.IO) { fetchEntryById(movementId) } ?: return
+        if (!movement.isActive || movement.messageKind != RegisterEntry.MESSAGE_MOVEMENT) return
+
+        scheduleMovementReminder(
+            entryId = movement.id,
+            person = movement.beneficiary.ifBlank { movement.label },
+            kind = movement.movementKind.ifBlank { "déplacement" },
+            departureDate = movement.departureDate,
+            arrivalDate = movement.arrivalDate,
+            durationDays = movement.durationDays,
+            indefinite = movement.durationIndefinite,
+        )
+    }
+
     private suspend fun createOrQueue(entryId: String, payload: JSONObject) {
         try {
             withContext(Dispatchers.IO) { postEntry(payload) }
@@ -250,6 +378,7 @@ class RegistreRepository(private val context: Context) {
             "?select=*" +
             "&year=eq.$year" +
             "&register_type=eq.$encodedType" +
+            "&deleted_at=is.null" +
             "&order=official_number.asc"
 
         val response = request("GET", path, null)
@@ -257,6 +386,17 @@ class RegistreRepository(private val context: Context) {
         return buildList {
             for (index in 0 until array.length()) add(fromRemoteJson(array.getJSONObject(index)))
         }
+    }
+
+    private fun fetchEntryById(entryId: String): RegisterEntry? {
+        val encoded = URLEncoder.encode(entryId, Charsets.UTF_8.name())
+        val response = request(
+            "GET",
+            "/rest/v1/registre_entries?select=*&id=eq.$encoded&limit=1",
+            null,
+        )
+        val array = JSONArray(response)
+        return if (array.length() > 0) fromRemoteJson(array.getJSONObject(0)) else null
     }
 
     private fun postEntry(payload: JSONObject): RegisterEntry {
@@ -301,7 +441,13 @@ class RegistreRepository(private val context: Context) {
                 .orEmpty()
 
             if (status !in 200..299) {
-                throw SupabaseHttpException(status, response.ifBlank { "Erreur Supabase HTTP $status" })
+                val message = runCatching {
+                    JSONObject(response).optString("message").ifBlank { response }
+                }.getOrDefault(response)
+                throw SupabaseHttpException(
+                    status,
+                    message.ifBlank { "Erreur Supabase HTTP $status" },
+                )
             }
             return response
         } finally {
@@ -348,6 +494,12 @@ class RegistreRepository(private val context: Context) {
             movementClosedAt = if (locallyClosed) "local" else remoteClosed,
             beneficiary = obj.optString("beneficiary"),
             creatorDeviceId = obj.optString("creator_device_id"),
+            messageKind = obj.optString("message_kind").ifBlank { RegisterEntry.MESSAGE_ORDINARY },
+            relatedMovementId = nullableString(obj, "related_movement_id"),
+            relatedPermissionId = nullableString(obj, "related_permission_id"),
+            cancelledAt = nullableString(obj, "cancelled_at"),
+            cancelledReason = obj.optString("cancelled_reason"),
+            deletedAt = nullableString(obj, "deleted_at"),
         )
     }
 
@@ -392,6 +544,9 @@ class RegistreRepository(private val context: Context) {
             movementClosedAt = if (payload.optBoolean("movementClosed", false)) "local" else "",
             beneficiary = payload.optString("beneficiary"),
             creatorDeviceId = payload.optString("creatorDeviceId"),
+            messageKind = payload.optString("messageKind").ifBlank { RegisterEntry.MESSAGE_ORDINARY },
+            relatedMovementId = payload.optString("relatedMovementId"),
+            relatedPermissionId = payload.optString("relatedPermissionId"),
         )
 
     @Synchronized
@@ -419,6 +574,23 @@ class RegistreRepository(private val context: Context) {
         }
         if (changed) pendingPrefs.edit().putString(PENDING_KEY, source.toString()).apply()
         return changed
+    }
+
+    @Synchronized
+    private fun removePendingIfPresent(entryId: String): Boolean {
+        val source = readPendingArray()
+        var found = false
+        val target = JSONArray()
+        for (index in 0 until source.length()) {
+            val item = source.getJSONObject(index)
+            if (item.optString("localId") == entryId) {
+                found = true
+            } else {
+                target.put(item)
+            }
+        }
+        if (found) pendingPrefs.edit().putString(PENDING_KEY, target.toString()).apply()
+        return found
     }
 
     @Synchronized
