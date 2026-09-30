@@ -686,6 +686,7 @@ private fun StandardForm(
     var observation by remember { mutableStateOf("") }
 
     var messageMode by remember { mutableStateOf(RegisterEntry.MESSAGE_ORDINARY) }
+    var movementSubtype by remember { mutableStateOf("déplacement") }
     var isMovement by remember { mutableStateOf(false) }
     var beneficiary by remember { mutableStateOf("") }
     var departureDate by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -701,6 +702,12 @@ private fun StandardForm(
     }
     val availabilityMode =
         type == RegisterType.R2 && messageMode == RegisterEntry.MESSAGE_AVAILABILITY
+    val selectedMovement = openMovements.firstOrNull { it.id == selectedMovementId }
+    val availabilitySubtype =
+        if (selectedMovement?.movementKind == "déplacement perm")
+            "disponibilité perm"
+        else
+            "disponibilité"
 
     val arrival = if (durationIndefinite) null else runCatching {
         MovementRules.arrivalDate(departureDate, duration)
@@ -809,6 +816,10 @@ private fun StandardForm(
                                     Text(
                                         movement.displayNumber + " · " +
                                             movement.beneficiary.ifBlank { movement.label } +
+                                            if (movement.movementKind.isNotBlank())
+                                                " · " + movement.movementKind
+                                            else
+                                                "" +
                                             if (movement.departureDate.isNotBlank())
                                                 " · départ " + movement.departureDate
                                             else
@@ -866,6 +877,25 @@ private fun StandardForm(
                     Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    if (type == RegisterType.R2) {
+                        Text("Type de déplacement", fontWeight = FontWeight.SemiBold)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                FilterChip(
+                                    selected = movementSubtype == "déplacement",
+                                    onClick = { movementSubtype = "déplacement" },
+                                    label = { Text("Déplacement") },
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = movementSubtype == "déplacement perm",
+                                    onClick = { movementSubtype = "déplacement perm" },
+                                    label = { Text("Déplacement perm") },
+                                )
+                            }
+                        }
+                    }
                     FormField(beneficiary, { beneficiary = it }, "Nom et prénoms")
                     DatePickerField(
                         value = departureDate,
@@ -926,7 +956,8 @@ private fun StandardForm(
                         label = label,
                         observation = observation,
                         movementKind = when {
-                            availabilityMode -> "disponibilité"
+                            availabilityMode -> availabilitySubtype
+                            type == RegisterType.R2 && movementMode -> movementSubtype
                             movementMode -> "déplacement"
                             else -> ""
                         },
