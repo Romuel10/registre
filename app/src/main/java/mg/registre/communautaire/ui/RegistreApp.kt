@@ -1154,7 +1154,7 @@ private fun StandardForm(
                             )
                             Text(
                                 "Date d'arrivée calculée : " +
-                                    (arrival ?: "durée ou date invalide"),
+                                    (arrival?.let(DateFormats::display) ?: "durée ou date invalide"),
                                 fontWeight = FontWeight.Medium,
                             )
                             Text(
