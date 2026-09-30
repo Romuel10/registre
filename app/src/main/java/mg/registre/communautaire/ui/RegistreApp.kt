@@ -816,14 +816,18 @@ private fun StandardForm(
                                     Text(
                                         movement.displayNumber + " · " +
                                             movement.beneficiary.ifBlank { movement.label } +
-                                            if (movement.movementKind.isNotBlank())
-                                                " · " + movement.movementKind
-                                            else
-                                                "" +
-                                            if (movement.departureDate.isNotBlank())
-                                                " · départ " + movement.departureDate
-                                            else
-                                                ""
+                                            (
+                                                if (movement.movementKind.isNotBlank())
+                                                    " · " + movement.movementKind
+                                                else
+                                                    ""
+                                            ) +
+                                            (
+                                                if (movement.departureDate.isNotBlank())
+                                                    " · départ " + movement.departureDate
+                                                else
+                                                    ""
+                                            )
                                     )
                                 },
                             )
