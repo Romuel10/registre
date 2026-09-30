@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "439782274545",
+    "project_id": "archive-9631f",
+    "storage_bucket": "archive-9631f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:439782274545:android:2abb1acb3a3d5622798050",
+        "android_client_info": {
+          "package_name": "mg.registre.communautair"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTnvS1uqK4RyOFOeiDVBwcyvxsjOMYDRg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
