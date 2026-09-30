@@ -53,15 +53,6 @@ class AvailabilityReminderWorker(
             .build()
 
         manager.notify(("availability_" + entryId + person).hashCode().absoluteValue, notification)
-
-        if (indefinite && entryId.isNotBlank()) {
-            ReminderScheduler.scheduleNextIndefinite(
-                applicationContext,
-                entryId,
-                person,
-                kind,
-            )
-        }
         return Result.success()
     }
 
