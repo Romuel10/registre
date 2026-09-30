@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
                         onCloseMovement = viewModel::closeMovement,
                         onCancelEntry = viewModel::cancelEntry,
                         onDeleteEntry = viewModel::deleteEntry,
+                        onInitializeCounter = viewModel::initializeCounter,
                         onClearError = viewModel::clearError,
                         onClearNotice = viewModel::clearNotice,
                     )
