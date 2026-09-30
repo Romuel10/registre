@@ -24,16 +24,16 @@ object PermissionWorkflowNotifier {
                     "Suivi des permissions",
                     NotificationManager.IMPORTANCE_HIGH,
                 ).apply {
-                    description = "Rappels des messages /2 liés aux permissions /3.PERM"
+                    description = "Rappels des messages /2 ou /4 liés aux permissions /3.PERM"
                 }
             )
         }
 
-        val body = "La permission de $person est enregistrée. Créez maintenant dans /2 le message de déplacement « déplacement perm »."
+        val body = "La permission de $person est enregistrée. Créez maintenant dans /2 ou /4 le message de déplacement « déplacement perm »."
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Message de déplacement /2 à faire")
+            .setContentTitle("Message de déplacement perm à faire")
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
