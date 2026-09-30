@@ -284,6 +284,32 @@ private fun RegisterListPage(
             )
         }
 
+        if (!state.integrityOk) {
+            item {
+                Card(
+                    Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                    ),
+                ) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            "Enregistrement bloqué",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                        Text(
+                            "Un doublon de numéro a été détecté. Les nouvelles entrées sont bloquées jusqu'à correction.",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    }
+                }
+            }
+        }
+
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(RegisterType.entries) { type ->
@@ -359,6 +385,7 @@ private fun RegisterListPage(
 private fun SummaryCard(state: MainUiState) {
     val last = state.entries.mapNotNull { it.officialNumber }.maxOrNull()
     val pending = state.entries.count { it.officialNumber == null }
+    val cancelled = state.entries.count { it.status == RegisterEntry.STATUS_CANCELLED }
 
     Card(
         Modifier.fillMaxWidth(),
@@ -377,11 +404,16 @@ private fun SummaryCard(state: MainUiState) {
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                 )
+                Text(
+                    if (state.integrityOk) "Intégrité numérotation : OK" else "Intégrité numérotation : anomalie",
+                    style = MaterialTheme.typography.labelMedium,
+                )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text("Entrées", style = MaterialTheme.typography.labelLarge)
                 Text(state.entries.size.toString(), style = MaterialTheme.typography.headlineSmall)
                 if (pending > 0) Text(pending.toString() + " en attente", style = MaterialTheme.typography.labelMedium)
+                if (cancelled > 0) Text(cancelled.toString() + " annulée(s)", style = MaterialTheme.typography.labelMedium)
             }
         }
     }
@@ -393,7 +425,77 @@ private fun EntryCard(
     type: RegisterType,
     deviceId: String,
     onCloseMovement: (String) -> Unit,
+    onCancelEntry: (String, String) -> Unit,
+    onDeleteEntry: (String) -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var action by remember { mutableStateOf<String?>(null) }
+    var cancelReason by remember { mutableStateOf("") }
+
+    if (action == "cancel") {
+        AlertDialog(
+            onDismissRequest = { action = null },
+            title = { Text("Annuler cette entrée ?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Le numéro " + entry.displayNumber +
+                            " restera réservé et ne sera jamais réutilisé."
+                    )
+                    OutlinedTextField(
+                        value = cancelReason,
+                        onValueChange = { cancelReason = it },
+                        label = { Text("Motif de l'annulation") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onCancelEntry(entry.id, cancelReason)
+                        action = null
+                    },
+                ) {
+                    Text("Confirmer")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { action = null }) { Text("Retour") }
+            },
+        )
+    }
+
+    if (action == "delete") {
+        AlertDialog(
+            onDismissRequest = { action = null },
+            title = { Text("Supprimer cette entrée ?") },
+            text = {
+                Text(
+                    if (entry.officialNumber == null)
+                        "Le brouillon local sera supprimé."
+                    else
+                        "L'entrée sera retirée de la liste active. Son numéro " +
+                            entry.displayNumber +
+                            " restera réservé dans l'historique pour éviter toute réutilisation."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteEntry(entry.id)
+                        action = null
+                    },
+                ) {
+                    Text("Supprimer")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { action = null }) { Text("Retour") }
+            },
+        )
+    }
+
     OutlinedCard(
         Modifier.fillMaxWidth().animateContentSize(),
         shape = RoundedCornerShape(18.dp),
@@ -407,19 +509,77 @@ private fun EntryCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Column {
+                    Text(
+                        entry.displayNumber.ifBlank { "Numéro en attente" },
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    when (entry.messageKind) {
+                        RegisterEntry.MESSAGE_MOVEMENT ->
+                            Text("Message de déplacement", style = MaterialTheme.typography.labelMedium)
+                        RegisterEntry.MESSAGE_AVAILABILITY ->
+                            Text("Message de disponibilité", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AssistChip(
+                        onClick = { },
+                        label = {
+                            Text(
+                                when {
+                                    entry.officialNumber == null -> "Synchronisation"
+                                    entry.isCancelled -> "Annulé"
+                                    else -> "Validé"
+                                }
+                            )
+                        },
+                    )
+
+                    if (entry.creatorDeviceId == deviceId || entry.officialNumber == null) {
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Actions")
+                            }
+                            DropdownMenu(
+                                expanded = menuOpen,
+                                onDismissRequest = { menuOpen = false },
+                            ) {
+                                if (!entry.isCancelled && entry.officialNumber != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Annuler l'entrée") },
+                                        onClick = {
+                                            menuOpen = false
+                                            action = "cancel"
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Supprimer l'entrée") },
+                                    onClick = {
+                                        menuOpen = false
+                                        action = "delete"
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider()
+
+            if (entry.isCancelled) {
                 Text(
-                    entry.displayNumber.ifBlank { "Numéro en attente" },
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                AssistChip(
-                    onClick = { },
-                    label = {
-                        Text(if (entry.officialNumber == null) "Synchronisation" else "Validé")
-                    },
+                    "Entrée annulée" +
+                        if (entry.cancelledReason.isNotBlank())
+                            " · " + entry.cancelledReason
+                        else "",
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Medium,
                 )
             }
-            HorizontalDivider()
 
             if (type == RegisterType.R3PERM) {
                 DataLine("Grade", entry.grade)
@@ -431,14 +591,20 @@ private fun EntryCard(
                     DataLine("Durée", "Indéterminée")
                     DataLine(
                         "Suivi",
-                        if (entry.movementClosedAt.isBlank()) "Retour à confirmer · rappel tous les 3 jours"
-                        else "Retour confirmé",
+                        if (entry.movementClosedAt.isBlank())
+                            "Retour à confirmer · rappel tous les 3 jours"
+                        else
+                            "Retour confirmé",
                     )
                 } else {
                     DataLine("Arrivée", entry.arrivalDate)
-                    if (entry.durationDays > 0) DataLine("Durée", entry.durationDays.toString() + " jour(s)")
+                    if (entry.durationDays > 0) {
+                        DataLine("Durée", entry.durationDays.toString() + " jour(s)")
+                    }
                 }
-                if (entry.annualRightYear > 0) DataLine("Droit année", entry.annualRightYear.toString())
+                if (entry.annualRightYear > 0) {
+                    DataLine("Droit année", entry.annualRightYear.toString())
+                }
                 DataLine("Droit consommé", entry.consumedRightDetail)
             } else {
                 DataLine("N° de la pièce", entry.pieceNumber)
@@ -446,14 +612,22 @@ private fun EntryCard(
                 DataLine("Origine de la pièce", entry.origin)
                 DataLine("Libellé ou objet", entry.label)
                 DataLine("Observation", entry.observation)
+
+                if (entry.messageKind == RegisterEntry.MESSAGE_AVAILABILITY) {
+                    DataLine("Personne concernée", entry.beneficiary)
+                    DataLine("Lié au déplacement", entry.relatedMovementId)
+                }
+
                 if (entry.durationIndefinite || entry.durationDays > 0) {
                     DataLine("Déplacement", entry.beneficiary)
                     if (entry.durationIndefinite) {
                         DataLine("Durée", "Indéterminée")
                         DataLine(
                             "Suivi",
-                            if (entry.movementClosedAt.isBlank()) "Retour à confirmer · rappel tous les 3 jours"
-                            else "Retour confirmé",
+                            if (entry.movementClosedAt.isBlank())
+                                "Retour à confirmer · rappel tous les 3 jours"
+                            else
+                                "Retour confirmé",
                         )
                     } else {
                         DataLine("Durée", entry.durationDays.toString() + " jour(s)")
@@ -465,7 +639,8 @@ private fun EntryCard(
             if (
                 entry.durationIndefinite &&
                 entry.movementClosedAt.isBlank() &&
-                entry.creatorDeviceId == deviceId
+                entry.creatorDeviceId == deviceId &&
+                !entry.isCancelled
             ) {
                 OutlinedButton(
                     onClick = { onCloseMovement(entry.id) },
