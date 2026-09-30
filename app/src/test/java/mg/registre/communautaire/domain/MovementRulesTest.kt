@@ -26,4 +26,15 @@ class MovementRulesTest {
     fun officialNumberUsesRegisterSuffix() {
         assertEquals("12/3.S", MovementRules.displayNumber(12, RegisterType.R3S))
     }
+
+    @Test
+    fun datesAreDisplayedDayMonthYear() {
+        assertEquals("30-09-2026", DateFormats.display("2026-09-30"))
+        assertEquals("04-10-2026", DateFormats.display("2026-10-04"))
+    }
+
+    @Test
+    fun blankDateStaysBlank() {
+        assertEquals("", DateFormats.display(""))
+    }
 }
