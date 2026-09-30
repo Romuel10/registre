@@ -13,7 +13,7 @@ fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("
 
 android {
     namespace = "mg.registre.communautaire"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "mg.registre.communautaire"
