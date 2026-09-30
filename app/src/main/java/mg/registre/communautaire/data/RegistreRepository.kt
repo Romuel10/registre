@@ -141,6 +141,40 @@ class RegistreRepository(private val context: Context) {
         }
     }
 
+    suspend fun getCounterStatus(year: Int, type: RegisterType): CounterStatus =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("p_year", year)
+                .put("p_register_type", type.code)
+                .toString()
+
+            val response = request(
+                "POST",
+                "/rest/v1/rpc/registre_counter_status",
+                body,
+            )
+            parseCounterStatus(response)
+        }
+
+    suspend fun initializeCounter(
+        year: Int,
+        type: RegisterType,
+        lastUsedNumber: Long,
+    ): CounterStatus = withContext(Dispatchers.IO) {
+        val body = JSONObject()
+            .put("p_year", year)
+            .put("p_register_type", type.code)
+            .put("p_last_used", lastUsedNumber)
+            .toString()
+
+        val response = request(
+            "POST",
+            "/rest/v1/rpc/registre_initialize_counter",
+            body,
+        )
+        parseCounterStatus(response)
+    }
+
     suspend fun checkIntegrity(year: Int, type: RegisterType): Boolean = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("p_year", year)
@@ -704,6 +738,19 @@ class RegistreRepository(private val context: Context) {
             "supabase_pending_sync",
             ExistingWorkPolicy.KEEP,
             request,
+        )
+    }
+
+    private fun parseCounterStatus(response: String): CounterStatus {
+        val obj = when {
+            response.trim().startsWith("[") -> JSONArray(response).getJSONObject(0)
+            else -> JSONObject(response)
+        }
+
+        return CounterStatus(
+            initialized = obj.optBoolean("initialized", false),
+            lastNumber = obj.optLong("lastNumber", 0L),
+            nextNumber = obj.optLong("nextNumber", 1L),
         )
     }
 
