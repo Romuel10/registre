@@ -65,6 +65,14 @@ Exemple : départ aujourd'hui pour 2 jours = aujourd'hui + demain, arrivée dema
 
 Le rappel local Android reste géré par WorkManager et fonctionne sans Firebase.
 
+## Notifications communautaires
+
+Chaque téléphone possède un identifiant local. Lorsqu'un nouveau /2, /3, /4, /3.S ou /3.PERM est créé par un autre appareil :
+- l'application vérifie les nouvelles entrées environ toutes les 10 secondes lorsqu'elle est ouverte ;
+- en arrière-plan, WorkManager effectue une vérification périodique avec connexion réseau et affiche une notification Android.
+
+Le téléphone créateur ne se notifie pas lui-même.
+
 ## Sécurité
 
 - Row Level Security est activé sur les tables du registre.
