@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -34,6 +35,8 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -84,7 +87,10 @@ fun RegistreApp(
     onSaveStandard: (StandardEntryInput, () -> Unit) -> Unit,
     onSavePermission: (PermissionEntryInput, () -> Unit) -> Unit,
     onCloseMovement: (String) -> Unit,
+    onCancelEntry: (String, String) -> Unit,
+    onDeleteEntry: (String) -> Unit,
     onClearError: () -> Unit,
+    onClearNotice: () -> Unit,
 ) {
     var page by remember { mutableStateOf(Page.LIST) }
     var query by remember { mutableStateOf("") }
@@ -97,10 +103,21 @@ fun RegistreApp(
     state.error?.let { message ->
         AlertDialog(
             onDismissRequest = onClearError,
-            title = { Text("Information") },
+            title = { Text("Attention") },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = onClearError) { Text("Fermer") }
+            },
+        )
+    }
+
+    state.notice?.let { message ->
+        AlertDialog(
+            onDismissRequest = onClearNotice,
+            title = { Text("Information") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = onClearNotice) { Text("D'accord") }
             },
         )
     }
@@ -143,7 +160,11 @@ fun RegistreApp(
             )
         },
         floatingActionButton = {
-            if (page == Page.LIST && state.selectedYear == LocalDate.now().year) {
+            if (
+                page == Page.LIST &&
+                state.selectedYear == LocalDate.now().year &&
+                state.integrityOk
+            ) {
                 ExtendedFloatingActionButton(
                     onClick = { page = Page.FORM },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
@@ -165,6 +186,8 @@ fun RegistreApp(
                     onSelectType = onSelectType,
                     onSelectYear = onSelectYear,
                     onCloseMovement = onCloseMovement,
+                    onCancelEntry = onCancelEntry,
+                    onDeleteEntry = onDeleteEntry,
                 )
                 Page.FORM -> {
                     if (state.selectedType == RegisterType.R3PERM) {
@@ -178,6 +201,7 @@ fun RegistreApp(
                         StandardForm(
                             type = state.selectedType,
                             saving = state.saving,
+                            openMovements = state.openMovements,
                             onSave = { input ->
                                 onSaveStandard(input) { page = Page.LIST }
                             },
@@ -224,6 +248,8 @@ private fun RegisterListPage(
     onSelectType: (RegisterType) -> Unit,
     onSelectYear: (Int) -> Unit,
     onCloseMovement: (String) -> Unit,
+    onCancelEntry: (String, String) -> Unit,
+    onDeleteEntry: (String) -> Unit,
 ) {
     val now = LocalDate.now().year
     val years = (now downTo now - 4).toList()
@@ -321,6 +347,8 @@ private fun RegisterListPage(
                     type = state.selectedType,
                     deviceId = state.deviceId,
                     onCloseMovement = onCloseMovement,
+                    onCancelEntry = onCancelEntry,
+                    onDeleteEntry = onDeleteEntry,
                 )
             }
         }
