@@ -31,10 +31,28 @@ data class RegisterEntry(
     val movementClosedAt: String = "",
     val beneficiary: String = "",
     val creatorDeviceId: String = "",
+
+    val messageKind: String = MESSAGE_ORDINARY,
+    val relatedMovementId: String = "",
+    val relatedPermissionId: String = "",
+    val cancelledAt: String = "",
+    val cancelledReason: String = "",
+    val deletedAt: String = "",
 ) {
+    val isCancelled: Boolean get() = status == STATUS_CANCELLED
+    val isDeleted: Boolean get() = status == STATUS_DELETED
+    val isActive: Boolean get() = status == STATUS_NUMBERED && deletedAt.isBlank()
+
     companion object {
         const val STATUS_PENDING = "PENDING_NUMBER"
         const val STATUS_NUMBERED = "NUMBERED"
+        const val STATUS_CANCELLED = "CANCELLED"
+        const val STATUS_DELETED = "DELETED"
+
+        const val MESSAGE_ORDINARY = "ordinary"
+        const val MESSAGE_MOVEMENT = "movement"
+        const val MESSAGE_AVAILABILITY = "availability"
+        const val MESSAGE_PERMISSION = "permission"
     }
 }
 
@@ -50,6 +68,9 @@ data class StandardEntryInput(
     val beneficiary: String = "",
     val departureDate: String = "",
     val arrivalDate: String = "",
+    val messageKind: String = RegisterEntry.MESSAGE_ORDINARY,
+    val relatedMovementId: String = "",
+    val relatedPermissionId: String = "",
 )
 
 data class PermissionEntryInput(
