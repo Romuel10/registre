@@ -1089,29 +1089,39 @@ private fun StandardForm(
                         observation = observation,
                         movementKind = when {
                             availabilityMode -> availabilitySubtype
-                            type == RegisterType.R2 && movementMode -> movementSubtype
+                            workflowType && movementMode -> movementSubtype
                             movementMode -> "déplacement"
                             else -> ""
                         },
                         durationDays =
-                            if (movementMode && !durationIndefinite) duration else 0,
-                        durationIndefinite = movementMode && durationIndefinite,
+                            if (movementMode && !effectiveIndefinite)
+                                effectiveDuration
+                            else
+                                0,
+                        durationIndefinite = movementMode && effectiveIndefinite,
                         beneficiary =
-                            if (movementMode || availabilityMode) beneficiary else "",
-                        departureDate = if (movementMode) departureDate else "",
+                            when {
+                                availabilityMode -> beneficiary
+                                movementMode -> effectiveBeneficiary
+                                else -> ""
+                            },
+                        departureDate =
+                            if (movementMode) effectiveDepartureDate else "",
                         arrivalDate =
-                            if (movementMode && !durationIndefinite)
-                                arrival.orEmpty()
+                            if (movementMode && !effectiveIndefinite)
+                                effectiveArrival
                             else
                                 "",
                         messageKind = when {
                             availabilityMode -> RegisterEntry.MESSAGE_AVAILABILITY
-                            type == RegisterType.R2 && movementMode ->
+                            workflowType && movementMode ->
                                 RegisterEntry.MESSAGE_MOVEMENT
                             else -> RegisterEntry.MESSAGE_ORDINARY
                         },
                         relatedMovementId =
                             if (availabilityMode) selectedMovementId else "",
+                        relatedPermissionId =
+                            if (permissionMovement) selectedPermissionId else "",
                     )
                 )
             },
@@ -1130,6 +1140,11 @@ private fun StandardForm(
                 (
                     !movementMode ||
                     (
+                        permissionMovement &&
+                        selectedPermission != null
+                    ) ||
+                    (
+                        !permissionMovement &&
                         beneficiary.isNotBlank() &&
                         departureDate.isNotBlank() &&
                         (durationIndefinite || arrival != null)
