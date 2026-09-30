@@ -34,17 +34,30 @@ class AvailabilityReminderWorker(
             manager.createNotificationChannel(channel)
         }
 
-        val message = if (indefinite) {
-            "Le déplacement de $person est à durée indéterminée. Vérifier s'il/elle est revenu(e) et préparer le message de disponibilité si nécessaire."
-        } else {
-            "Préparer le message de disponibilité de $person à la fin de son $kind" +
-                if (date.isNotBlank()) " ($date)." else "."
+        val isPermission = kind.equals("permission", ignoreCase = true)
+        val message = when {
+            isPermission && indefinite ->
+                "Vérifier si $person est revenu(e) de permission. Dès son retour, créez dans /2 le message de disponibilité « disponibilité perm »."
+            isPermission ->
+                "La permission de $person arrive à son terme" +
+                    if (date.isNotBlank()) " ($date)." else "." +
+                    " Créez dans /2 le message de disponibilité « disponibilité perm »."
+            indefinite ->
+                "Le déplacement de $person est à durée indéterminée. Vérifier s'il/elle est revenu(e) et préparer le message de disponibilité si nécessaire."
+            else ->
+                "Préparer le message de disponibilité de $person à la fin de son $kind" +
+                    if (date.isNotBlank()) " ($date)." else "."
         }
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(
-                if (indefinite) "Vérifier le retour de la personne" else "Message de disponibilité à préparer"
+                when {
+                    isPermission && indefinite -> "Permission : vérifier le retour"
+                    isPermission -> "Message de disponibilité /2 à faire"
+                    indefinite -> "Vérifier le retour de la personne"
+                    else -> "Message de disponibilité à préparer"
+                }
             )
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
