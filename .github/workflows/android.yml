@@ -26,7 +26,7 @@ jobs:
           packages: "platform-tools"
 
       - name: Install Android SDK
-        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+        run: android sdk install platforms/android-37 build-tools/36.0.0
 
       - uses: gradle/actions/setup-gradle@v6
         with:
