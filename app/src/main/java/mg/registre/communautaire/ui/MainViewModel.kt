@@ -9,16 +9,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import mg.registre.communautaire.data.FirebaseBootstrap
 import mg.registre.communautaire.data.RegistreRepository
+import mg.registre.communautaire.data.SupabaseConfig
 import mg.registre.communautaire.domain.PermissionEntryInput
 import mg.registre.communautaire.domain.RegisterEntry
 import mg.registre.communautaire.domain.RegisterType
 import mg.registre.communautaire.domain.StandardEntryInput
 
 data class MainUiState(
-    val firebaseConfigured: Boolean = false,
-    val authReady: Boolean = false,
+    val backendConfigured: Boolean = false,
     val selectedYear: Int = LocalDate.now().year,
     val selectedType: RegisterType = RegisterType.R2,
     val entries: List<RegisterEntry> = emptyList(),
@@ -33,7 +32,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("settings", 0)
     private val _uiState = MutableStateFlow(
         MainUiState(
-            firebaseConfigured = FirebaseBootstrap.initialize(application),
+            backendConfigured = SupabaseConfig.isConfigured(),
             fontScale = prefs.getFloat("font_scale", 1f),
         )
     )
@@ -42,23 +41,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var observationJob: Job? = null
 
     init {
-        if (_uiState.value.firebaseConfigured) {
-            viewModelScope.launch {
-                runCatching { repository.ensureSignedIn() }
-                    .onSuccess {
-                        _uiState.value = _uiState.value.copy(authReady = true, loading = false)
-                        restartObservation()
-                    }
-                    .onFailure {
-                        _uiState.value = _uiState.value.copy(
-                            loading = false,
-                            error = "Connexion Firebase initiale requise : " + (it.message ?: "erreur inconnue")
-                        )
-                    }
-            }
-        } else {
-            _uiState.value = _uiState.value.copy(loading = false)
-        }
+        _uiState.value = _uiState.value.copy(loading = false)
+        if (_uiState.value.backendConfigured) restartObservation()
     }
 
     fun selectType(type: RegisterType) {
@@ -94,6 +78,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(saving = false)
                 onSaved()
+                restartObservation()
             }.onFailure {
                 _uiState.value = _uiState.value.copy(
                     saving = false,
@@ -116,6 +101,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(saving = false)
                 onSaved()
+                restartObservation()
             }.onFailure {
                 _uiState.value = _uiState.value.copy(
                     saving = false,
@@ -126,7 +112,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun restartObservation() {
-        if (!_uiState.value.firebaseConfigured || !_uiState.value.authReady) return
+        if (!_uiState.value.backendConfigured) return
         observationJob?.cancel()
         observationJob = viewModelScope.launch {
             val state = _uiState.value
