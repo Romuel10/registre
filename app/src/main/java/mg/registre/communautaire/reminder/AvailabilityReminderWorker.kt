@@ -34,27 +34,32 @@ class AvailabilityReminderWorker(
             manager.createNotificationChannel(channel)
         }
 
-        val isPermission = kind.equals("permission", ignoreCase = true)
+        val isPermissionFlow =
+            kind.equals("permission", ignoreCase = true) ||
+                kind.equals("déplacement perm", ignoreCase = true)
+
+        val datePart = if (date.isNotBlank()) " ($date)." else "."
+
         val message = when {
-            isPermission && indefinite ->
-                "Vérifier si $person est revenu(e) de permission. Dès son retour, créez dans /2 ou /4 le message de disponibilité « disponibilité perm »."
-            isPermission ->
-                "La permission de $person arrive à son terme" +
-                    if (date.isNotBlank()) " ($date)." else "." +
+            isPermissionFlow && indefinite ->
+                "Vérifier si $person est revenu(e). Dès son retour, créez dans /2 ou /4 le message de disponibilité « disponibilité perm »."
+            isPermissionFlow ->
+                "Le déplacement lié à la permission de $person arrive à son terme" +
+                    datePart +
                     " Créez dans /2 ou /4 le message de disponibilité « disponibilité perm »."
             indefinite ->
                 "Le déplacement de $person est à durée indéterminée. Vérifier s'il/elle est revenu(e) et préparer le message de disponibilité si nécessaire."
             else ->
                 "Préparer le message de disponibilité de $person à la fin de son $kind" +
-                    if (date.isNotBlank()) " ($date)." else "."
+                    datePart
         }
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(
                 when {
-                    isPermission && indefinite -> "Permission : vérifier le retour"
-                    isPermission -> "Message de disponibilité perm à faire"
+                    isPermissionFlow && indefinite -> "Permission : vérifier le retour"
+                    isPermissionFlow -> "Message de disponibilité perm à faire"
                     indefinite -> "Vérifier le retour de la personne"
                     else -> "Message de disponibilité à préparer"
                 }
