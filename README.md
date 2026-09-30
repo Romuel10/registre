@@ -53,16 +53,31 @@ Dans les deux cas, **le numéro n'est jamais réutilisé**.
 
 Un brouillon local encore sans numéro peut être supprimé directement.
 
-## /2 : déplacement et disponibilité
+## /2 et /4 : déplacement et disponibilité
 
-Le cahier /2 propose trois natures :
+Les cahiers **/2** et **/4** proposent trois natures :
 - pièce ordinaire ;
 - message de déplacement ;
 - message de disponibilité.
 
-Quand l'utilisateur choisit **Message de disponibilité**, l'application affiche la liste des messages de déplacement qui n'ont pas encore reçu de disponibilité. Le message choisi est lié au nouveau message de disponibilité.
+Quand l'utilisateur choisit **Message de disponibilité**, l'application affiche uniquement les messages de déplacement du même cahier qui n'ont pas encore reçu de disponibilité. Le message choisi est lié au nouveau message de disponibilité.
 
 Un déplacement ne peut recevoir qu'un seul message de disponibilité actif.
+
+### Déplacement perm relié au /3.PERM
+
+Quand le type **Déplacement perm** est choisi dans /2 ou /4, l'application ne demande plus de ressaisir manuellement le nom, la date de départ, le nombre de jours et la date d'arrivée.
+
+Elle affiche la liste des permissions enregistrées dans **/3.PERM** qui ne possèdent encore aucun message de déplacement actif dans /2 ou /4.
+
+Après sélection :
+- nom, matricule et grade servent de contrôle visuel ;
+- la date de départ et la durée proviennent du /3.PERM ;
+- la date d'arrivée est recalculée automatiquement avec la règle « jour du départ = jour 1 » ;
+- le message /2 ou /4 est lié techniquement à la permission /3.PERM ;
+- une même permission ne peut pas créer deux messages de déplacement actifs.
+
+Le serveur Supabase refait lui-même ce contrôle et ce calcul afin qu'un téléphone ne puisse pas envoyer une autre date d'arrivée.
 
 ## /3.PERM
 
@@ -73,9 +88,9 @@ Pour une permission :
 - le droit consommé accepte un texte tel que `2025-20 jours` ;
 - une durée peut être déclarée indéterminée.
 
-Après chaque enregistrement /3.PERM, l'application rappelle immédiatement de créer dans **/2** le message de déplacement **« déplacement perm »**.
+Après chaque enregistrement /3.PERM, l'application rappelle immédiatement de créer dans **/2 ou /4** le message de déplacement **« déplacement perm »**.
 
-À la fin de la permission, l'application rappelle de créer dans **/2** le message de disponibilité **« disponibilité perm »**.
+À la fin de la permission, l'application rappelle de créer dans **/2 ou /4** le message de disponibilité **« disponibilité perm »**.
 
 ## Rappels hors connexion
 
@@ -125,7 +140,7 @@ Si Supabase n'est pas joignable pendant une saisie ordinaire :
 
 ## Version
 
-Version Android actuelle : **1.3.0**
+Version Android actuelle : **1.4.0**
 
 ## Construction
 
