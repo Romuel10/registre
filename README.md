@@ -37,20 +37,51 @@ Un rappel local Android est programmé le matin de la date d'arrivée pour prép
 - WorkManager
 - GitHub Actions pour construire l'APK
 
-## Configuration Firebase
+## Firebase utilisé
 
-Le projet compile sans secret Firebase. Pour connecter une vraie base, définir les propriétés Gradle suivantes (dans `local.properties` en local ou comme variables/secrets CI) :
+Projet Firebase prévu pour cette application :
+
+- Project ID : `archive-9631f`
+- Package Android de l'application : `mg.registre.communautaire`
+
+La configuration reçue initialement correspond à une **application Web Firebase**. Son App ID contient `:web:` et ne doit pas être utilisé comme App ID Android.
+
+### Enregistrer l'application Android dans Firebase
+
+Dans Firebase Console :
+
+1. Ouvrir le projet `archive-9631f`.
+2. Aller dans **Paramètres du projet > Vos applications**.
+3. Ajouter une application **Android**.
+4. Saisir exactement le package :
+   `mg.registre.communautaire`
+5. Enregistrer l'application.
+6. Copier l'**App ID Android**, au format :
+   `1:...:android:...`
+
+Le projet peut fonctionner avec l'initialisation programmatique déjà présente ; il faut fournir :
 
 ```
 FIREBASE_API_KEY=...
 FIREBASE_APPLICATION_ID=1:...:android:...
-FIREBASE_PROJECT_ID=...
+FIREBASE_PROJECT_ID=archive-9631f
 ```
 
 Puis activer dans Firebase :
-1. Authentication > Anonymous
-2. Firestore Database
-3. Déployer les règles de `firestore.rules`
+
+1. **Authentication > Sign-in method > Anonymous**
+2. **Firestore Database**
+3. Déployer les règles présentes dans `firestore.rules`
+
+### GitHub Actions
+
+Le workflow lit les variables suivantes :
+
+- `FIREBASE_API_KEY`
+- `FIREBASE_APPLICATION_ID`
+- `FIREBASE_PROJECT_ID`
+
+Une fois ces trois valeurs définies pour GitHub Actions, chaque push sur `main` teste et construit automatiquement l'APK connecté à Firebase.
 
 ## Construction
 
