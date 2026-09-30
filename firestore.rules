@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    match /entries/{entryId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == "PENDING_NUMBER"
+        && request.resource.data.officialNumber == null;
+
+      allow update: if signedIn()
+        && resource.data.year == request.resource.data.year
+        && resource.data.registerType == request.resource.data.registerType
+        && request.resource.data.createdBy == resource.data.createdBy
+        && (
+          request.resource.data.status == resource.data.status
+          || (
+            resource.data.status == "PENDING_NUMBER"
+            && request.resource.data.status == "NUMBERED"
+            && request.resource.data.officialNumber is int
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /counters/{counterId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.next == 2;
+
+      allow update: if signedIn()
+        && request.resource.data.year == resource.data.year
+        && request.resource.data.registerType == resource.data.registerType
+        && request.resource.data.next == resource.data.next + 1;
+
+      allow delete: if false;
+    }
+  }
+}
