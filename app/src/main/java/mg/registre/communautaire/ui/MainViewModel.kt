@@ -5,9 +5,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.time.LocalDate
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import mg.registre.communautaire.data.RegistreRepository
 import mg.registre.communautaire.data.SupabaseConfig
@@ -15,9 +17,11 @@ import mg.registre.communautaire.domain.PermissionEntryInput
 import mg.registre.communautaire.domain.RegisterEntry
 import mg.registre.communautaire.domain.RegisterType
 import mg.registre.communautaire.domain.StandardEntryInput
+import mg.registre.communautaire.reminder.CommunityNotificationHelper
 
 data class MainUiState(
     val backendConfigured: Boolean = false,
+    val deviceId: String = "",
     val selectedYear: Int = LocalDate.now().year,
     val selectedType: RegisterType = RegisterType.R2,
     val entries: List<RegisterEntry> = emptyList(),
@@ -33,6 +37,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(
         MainUiState(
             backendConfigured = SupabaseConfig.isConfigured(),
+            deviceId = repository.deviceId,
             fontScale = prefs.getFloat("font_scale", 1f),
         )
     )
@@ -42,7 +47,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         _uiState.value = _uiState.value.copy(loading = false)
-        if (_uiState.value.backendConfigured) restartObservation()
+        if (_uiState.value.backendConfigured) {
+            restartObservation()
+            startForegroundCommunityAlerts()
+        }
     }
 
     fun selectType(type: RegisterType) {
@@ -111,6 +119,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun closeMovement(entryId: String) {
+        viewModelScope.launch {
+            runCatching { repository.closeMovement(entryId) }
+                .onSuccess { restartObservation() }
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(
+                        error = it.message ?: "Impossible de clôturer le déplacement."
+                    )
+                }
+        }
+    }
+
     private fun restartObservation() {
         if (!_uiState.value.backendConfigured) return
         observationJob?.cancel()
@@ -118,6 +138,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val state = _uiState.value
             repository.observeEntries(state.selectedYear, state.selectedType).collect { entries ->
                 _uiState.value = _uiState.value.copy(entries = entries, loading = false)
+            }
+        }
+    }
+
+    private fun startForegroundCommunityAlerts() {
+        viewModelScope.launch {
+            while (isActive) {
+                runCatching { repository.checkCommunityNotifications() }
+                    .onSuccess { entries ->
+                        CommunityNotificationHelper.notifyNewEntries(getApplication(), entries)
+                    }
+                delay(10_000)
             }
         }
     }
