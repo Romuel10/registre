@@ -143,7 +143,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     saving = false,
-                    notice = "Permission enregistrée. Il faut maintenant créer dans /2 le message de déplacement « déplacement perm »."
+                    notice = "Permission enregistrée. Il faut maintenant créer dans /2 ou /4 le message de déplacement « déplacement perm »."
                 )
                 onSaved()
                 restartObservation()
@@ -165,6 +165,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(notice = "Entrée annulée. Son numéro reste réservé et ne sera pas réutilisé.")
                     restartObservation()
                     restartOpenMovements()
+                    restartAvailablePermissions()
                 }
                 .onFailure {
                     _uiState.value = _uiState.value.copy(
