@@ -1,37 +1,25 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
 }
-
-fun configValue(name: String): String =
-    providers.gradleProperty(name)
-        .orElse(providers.environmentVariable(name))
-        .orElse("")
-        .get()
-
-fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "mg.registre.communautaire"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "mg.registre.communautaire"
+        applicationId = "mg.registre.communautair"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
-
-        buildConfigField("String", "FIREBASE_API_KEY", quoted(configValue("FIREBASE_API_KEY")))
-        buildConfigField("String", "FIREBASE_APPLICATION_ID", quoted(configValue("FIREBASE_APPLICATION_ID")))
-        buildConfigField("String", "FIREBASE_PROJECT_ID", quoted(configValue("FIREBASE_PROJECT_ID")))
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     compileOptions {
