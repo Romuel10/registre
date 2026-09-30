@@ -36,10 +36,6 @@ jobs:
         run: gradle :app:testDebugUnitTest --stacktrace
 
       - name: Build debug APK
-        env:
-          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-          FIREBASE_APPLICATION_ID: ${{ secrets.FIREBASE_APPLICATION_ID }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
