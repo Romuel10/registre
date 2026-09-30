@@ -1,5 +1,6 @@
 package mg.registre.communautaire.ui
 
+import android.app.DatePickerDialog
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -56,10 +58,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
 import mg.registre.communautaire.domain.MovementRules
@@ -79,6 +83,7 @@ fun RegistreApp(
     onFontScale: (Float) -> Unit,
     onSaveStandard: (StandardEntryInput, () -> Unit) -> Unit,
     onSavePermission: (PermissionEntryInput, () -> Unit) -> Unit,
+    onCloseMovement: (String) -> Unit,
     onClearError: () -> Unit,
 ) {
     var page by remember { mutableStateOf(Page.LIST) }
@@ -159,6 +164,7 @@ fun RegistreApp(
                     onQuery = { query = it },
                     onSelectType = onSelectType,
                     onSelectYear = onSelectYear,
+                    onCloseMovement = onCloseMovement,
                 )
                 Page.FORM -> {
                     if (state.selectedType == RegisterType.R3PERM) {
@@ -217,6 +223,7 @@ private fun RegisterListPage(
     onQuery: (String) -> Unit,
     onSelectType: (RegisterType) -> Unit,
     onSelectYear: (Int) -> Unit,
+    onCloseMovement: (String) -> Unit,
 ) {
     val now = LocalDate.now().year
     val years = (now downTo now - 4).toList()
@@ -309,7 +316,12 @@ private fun RegisterListPage(
             }
         } else {
             items(filtered, key = { it.id }) { entry ->
-                EntryCard(entry, state.selectedType)
+                EntryCard(
+                    entry = entry,
+                    type = state.selectedType,
+                    deviceId = state.deviceId,
+                    onCloseMovement = onCloseMovement,
+                )
             }
         }
     }
@@ -348,7 +360,12 @@ private fun SummaryCard(state: MainUiState) {
 }
 
 @Composable
-private fun EntryCard(entry: RegisterEntry, type: RegisterType) {
+private fun EntryCard(
+    entry: RegisterEntry,
+    type: RegisterType,
+    deviceId: String,
+    onCloseMovement: (String) -> Unit,
+) {
     OutlinedCard(
         Modifier.fillMaxWidth().animateContentSize(),
         shape = RoundedCornerShape(18.dp),
@@ -382,19 +399,51 @@ private fun EntryCard(entry: RegisterEntry, type: RegisterType) {
                 DataLine("Matricule", entry.matricule)
                 DataLine("N° /3", entry.numberR3)
                 DataLine("Départ", entry.departureDate)
-                DataLine("Arrivée", entry.arrivalDate)
-                DataLine("Droit année", entry.annualRight.toString())
-                DataLine("Droit consommé", entry.consumedRight.toString())
+                if (entry.durationIndefinite) {
+                    DataLine("Durée", "Indéterminée")
+                    DataLine(
+                        "Suivi",
+                        if (entry.movementClosedAt.isBlank()) "Retour à confirmer · rappel tous les 3 jours"
+                        else "Retour confirmé",
+                    )
+                } else {
+                    DataLine("Arrivée", entry.arrivalDate)
+                    if (entry.durationDays > 0) DataLine("Durée", entry.durationDays.toString() + " jour(s)")
+                }
+                if (entry.annualRightYear > 0) DataLine("Droit année", entry.annualRightYear.toString())
+                DataLine("Droit consommé", entry.consumedRightDetail)
             } else {
                 DataLine("N° de la pièce", entry.pieceNumber)
                 DataLine("Date de la pièce", entry.pieceDate)
                 DataLine("Origine de la pièce", entry.origin)
                 DataLine("Libellé ou objet", entry.label)
                 DataLine("Observation", entry.observation)
-                if (entry.durationDays > 0) {
+                if (entry.durationIndefinite || entry.durationDays > 0) {
                     DataLine("Déplacement", entry.beneficiary)
-                    DataLine("Durée", entry.durationDays.toString() + " jour(s)")
-                    DataLine("Arrivée", entry.arrivalDate)
+                    if (entry.durationIndefinite) {
+                        DataLine("Durée", "Indéterminée")
+                        DataLine(
+                            "Suivi",
+                            if (entry.movementClosedAt.isBlank()) "Retour à confirmer · rappel tous les 3 jours"
+                            else "Retour confirmé",
+                        )
+                    } else {
+                        DataLine("Durée", entry.durationDays.toString() + " jour(s)")
+                        DataLine("Arrivée", entry.arrivalDate)
+                    }
+                }
+            }
+
+            if (
+                entry.durationIndefinite &&
+                entry.movementClosedAt.isBlank() &&
+                entry.creatorDeviceId == deviceId
+            ) {
+                OutlinedButton(
+                    onClick = { onCloseMovement(entry.id) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Personne revenue · arrêter les rappels")
                 }
             }
         }
@@ -434,9 +483,11 @@ private fun StandardForm(
     var isMovement by remember { mutableStateOf(false) }
     var beneficiary by remember { mutableStateOf("") }
     var departureDate by remember { mutableStateOf(LocalDate.now().toString()) }
-    var duration by remember { mutableIntStateOf(1) }
+    var durationText by remember { mutableStateOf("1") }
+    var durationIndefinite by remember { mutableStateOf(false) }
 
-    val arrival = runCatching {
+    val duration = durationText.toIntOrNull() ?: 0
+    val arrival = if (durationIndefinite) null else runCatching {
         MovementRules.arrivalDate(departureDate, duration)
     }.getOrNull()
 
@@ -456,7 +507,7 @@ private fun StandardForm(
         FormField(label, { label = it }, "Libellé ou objet")
         FormField(observation, { observation = it }, "Observation", singleLine = false)
 
-        if (type == RegisterType.R3) {
+        if (type == RegisterType.R2 || type == RegisterType.R3) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -467,7 +518,7 @@ private fun StandardForm(
                         Column(Modifier.weight(1f)) {
                             Text("Message de déplacement", fontWeight = FontWeight.SemiBold)
                             Text(
-                                "Active le calcul des jours et le rappel de disponibilité.",
+                                "Active le suivi du déplacement et le rappel de disponibilité.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
@@ -476,17 +527,52 @@ private fun StandardForm(
 
                     if (isMovement) {
                         FormField(beneficiary, { beneficiary = it }, "Nom et prénoms")
-                        FormField(departureDate, { departureDate = it }, "Date de départ (AAAA-MM-JJ)")
-                        NumberStepper("Nombre de jours", duration, { duration = it.coerceAtLeast(1) })
-                        Text(
-                            "Date d'arrivée calculée : " + (arrival ?: "date invalide"),
-                            fontWeight = FontWeight.Medium,
+                        DatePickerField(
+                            value = departureDate,
+                            onValue = { departureDate = it },
+                            label = "Date de départ",
                         )
-                        Text(
-                            "Le jour du départ compte comme jour 1.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Durée indéterminée", fontWeight = FontWeight.Medium)
+                                Text(
+                                    "Un rappel local reviendra tous les 3 jours jusqu'à confirmation du retour.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = durationIndefinite,
+                                onCheckedChange = { durationIndefinite = it },
+                            )
+                        }
+
+                        if (!durationIndefinite) {
+                            NumericField(
+                                value = durationText,
+                                onValue = { durationText = it },
+                                label = "Nombre de jours",
+                            )
+                            Text(
+                                "Date d'arrivée calculée : " + (arrival ?: "durée ou date invalide"),
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                "Le jour du départ compte comme jour 1.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Text(
+                                "Pas de date d'arrivée imposée. L'application demandera tous les 3 jours si la personne est revenue.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
             }
@@ -502,10 +588,11 @@ private fun StandardForm(
                         label = label,
                         observation = observation,
                         movementKind = if (isMovement) "déplacement" else "",
-                        durationDays = if (isMovement) duration else 0,
+                        durationDays = if (isMovement && !durationIndefinite) duration else 0,
+                        durationIndefinite = isMovement && durationIndefinite,
                         beneficiary = if (isMovement) beneficiary else "",
                         departureDate = if (isMovement) departureDate else "",
-                        arrivalDate = if (isMovement) arrival.orEmpty() else "",
+                        arrivalDate = if (isMovement && !durationIndefinite) arrival.orEmpty() else "",
                     )
                 )
             },
@@ -514,7 +601,14 @@ private fun StandardForm(
                 pieceDate.isNotBlank() &&
                 origin.isNotBlank() &&
                 label.isNotBlank() &&
-                (!isMovement || (beneficiary.isNotBlank() && arrival != null)),
+                (
+                    !isMovement ||
+                    (
+                        beneficiary.isNotBlank() &&
+                        departureDate.isNotBlank() &&
+                        (durationIndefinite || arrival != null)
+                    )
+                ),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(if (saving) "Enregistrement..." else "Enregistrer et réserver le numéro")
@@ -528,16 +622,20 @@ private fun PermissionForm(
     saving: Boolean,
     onSave: (PermissionEntryInput) -> Unit,
 ) {
+    val currentYear = LocalDate.now().year
     var grade by remember { mutableStateOf("") }
     var fullName by remember { mutableStateOf("") }
     var matricule by remember { mutableStateOf("") }
     var numberR3 by remember { mutableStateOf("") }
     var departureDate by remember { mutableStateOf(LocalDate.now().toString()) }
-    var duration by remember { mutableIntStateOf(1) }
-    var annualRight by remember { mutableIntStateOf(0) }
-    var consumedRight by remember { mutableIntStateOf(0) }
+    var durationText by remember { mutableStateOf("1") }
+    var durationIndefinite by remember { mutableStateOf(false) }
+    var annualRightYearText by remember { mutableStateOf(currentYear.toString()) }
+    var consumedRightDetail by remember { mutableStateOf(currentYear.toString() + "-0 jours") }
 
-    val arrival = runCatching {
+    val duration = durationText.toIntOrNull() ?: 0
+    val annualRightYear = annualRightYearText.toIntOrNull() ?: 0
+    val arrival = if (durationIndefinite) null else runCatching {
         MovementRules.arrivalDate(departureDate, duration)
     }.getOrNull()
 
@@ -547,24 +645,74 @@ private fun PermissionForm(
     ) {
         Text("Cahier /3.PERM", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(
-            "L'arrivée et le rappel sont calculés automatiquement à partir du nombre de jours.",
+            "La date de départ se choisit dans le calendrier. Le rappel de disponibilité reste local sur le téléphone.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         FormField(grade, { grade = it }, "Grade")
         FormField(fullName, { fullName = it }, "Nom et prénoms")
         FormField(matricule, { matricule = it }, "Matricule")
         FormField(numberR3, { numberR3 = it }, "N° /3")
-        FormField(departureDate, { departureDate = it }, "Date de départ (AAAA-MM-JJ)")
-        NumberStepper("Nombre de jours", duration, { duration = it.coerceAtLeast(1) })
-        OutlinedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp)) {
-                Text("Date d'arrivée", style = MaterialTheme.typography.labelLarge)
-                Text(arrival ?: "Date invalide", style = MaterialTheme.typography.titleLarge)
-                Text("Le jour du départ est le jour 1.", style = MaterialTheme.typography.bodySmall)
+
+        DatePickerField(
+            value = departureDate,
+            onValue = { departureDate = it },
+            label = "Date de départ",
+        )
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Durée indéterminée", fontWeight = FontWeight.Medium)
+                Text(
+                    "Rappel hors connexion tous les 3 jours jusqu'au retour.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = durationIndefinite,
+                onCheckedChange = { durationIndefinite = it },
+            )
+        }
+
+        if (!durationIndefinite) {
+            NumericField(
+                value = durationText,
+                onValue = { durationText = it },
+                label = "Nombre de jours",
+            )
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Date d'arrivée", style = MaterialTheme.typography.labelLarge)
+                    Text(arrival ?: "Durée invalide", style = MaterialTheme.typography.titleLarge)
+                    Text("Le jour du départ est le jour 1.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        } else {
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Retour non daté", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Tous les 3 jours, une notification demandera si la personne est revenue afin de préparer le message de disponibilité.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
-        NumberStepper("Droit année", annualRight, { annualRight = it.coerceAtLeast(0) })
-        NumberStepper("Droit consommé", consumedRight, { consumedRight = it.coerceAtLeast(0) })
+
+        NumericField(
+            value = annualRightYearText,
+            onValue = { annualRightYearText = it },
+            label = "Droit année (ex. 2026)",
+        )
+        FormField(
+            value = consumedRightDetail,
+            onValue = { consumedRightDetail = it },
+            label = "Droit consommé (ex. 2025-20 jours)",
+        )
 
         Button(
             onClick = {
@@ -575,10 +723,11 @@ private fun PermissionForm(
                         matricule = matricule,
                         numberR3 = numberR3,
                         departureDate = departureDate,
-                        arrivalDate = arrival.orEmpty(),
-                        annualRight = annualRight,
-                        consumedRight = consumedRight,
-                        durationDays = duration,
+                        arrivalDate = if (durationIndefinite) "" else arrival.orEmpty(),
+                        annualRightYear = annualRightYear,
+                        consumedRightDetail = consumedRightDetail,
+                        durationDays = if (durationIndefinite) 0 else duration,
+                        durationIndefinite = durationIndefinite,
                     )
                 )
             },
@@ -587,7 +736,10 @@ private fun PermissionForm(
                 fullName.isNotBlank() &&
                 matricule.isNotBlank() &&
                 numberR3.isNotBlank() &&
-                arrival != null,
+                departureDate.isNotBlank() &&
+                annualRightYear in 1900..2200 &&
+                consumedRightDetail.isNotBlank() &&
+                (durationIndefinite || arrival != null),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(if (saving) "Enregistrement..." else "Enregistrer la permission")
@@ -614,31 +766,55 @@ private fun FormField(
 }
 
 @Composable
-private fun NumberStepper(
+private fun NumericField(
+    value: String,
+    onValue: (String) -> Unit,
     label: String,
-    value: Int,
-    onValue: (Int) -> Unit,
 ) {
-    OutlinedCard(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+    OutlinedTextField(
+        value = value,
+        onValueChange = { next ->
+            onValue(next.filter { it.isDigit() })
+        },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+    )
+}
+
+@Composable
+private fun DatePickerField(
+    value: String,
+    onValue: (String) -> Unit,
+    label: String,
+) {
+    val context = LocalContext.current
+    val initial = runCatching { LocalDate.parse(value) }.getOrElse { LocalDate.now() }
+
+    OutlinedButton(
+        onClick = {
+            DatePickerDialog(
+                context,
+                { _, year, month, day ->
+                    onValue(
+                        LocalDate.of(year, month + 1, day).toString()
+                    )
+                },
+                initial.year,
+                initial.monthValue - 1,
+                initial.dayOfMonth,
+            ).show()
+        },
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.Start,
         ) {
-            Text(label, fontWeight = FontWeight.Medium)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { onValue(value - 1) }, contentPadding = PaddingValues(horizontal = 14.dp)) {
-                    Text("−")
-                }
-                Text(
-                    value.toString(),
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                OutlinedButton(onClick = { onValue(value + 1) }, contentPadding = PaddingValues(horizontal = 14.dp)) {
-                    Text("+")
-                }
-            }
+            Text(label, style = MaterialTheme.typography.labelMedium)
+            Text(value, style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
