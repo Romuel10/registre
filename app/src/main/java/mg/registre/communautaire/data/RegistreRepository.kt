@@ -131,6 +131,8 @@ class RegistreRepository(private val context: Context) {
     private suspend fun createOrQueue(payload: JSONObject): String {
         return try {
             withContext(Dispatchers.IO) { postEntry(payload).id }
+        } catch (error: SupabaseHttpException) {
+            throw error
         } catch (error: IOException) {
             val localId = "local-" + UUID.randomUUID().toString()
             savePending(localId, payload)
