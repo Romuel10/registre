@@ -22,12 +22,15 @@ data class RegisterEntry(
     val numberR3: String = "",
     val departureDate: String = "",
     val arrivalDate: String = "",
-    val annualRight: Int = 0,
-    val consumedRight: Int = 0,
+    val annualRightYear: Int = 0,
+    val consumedRightDetail: String = "",
 
     val movementKind: String = "",
     val durationDays: Int = 0,
+    val durationIndefinite: Boolean = false,
+    val movementClosedAt: String = "",
     val beneficiary: String = "",
+    val creatorDeviceId: String = "",
 ) {
     companion object {
         const val STATUS_PENDING = "PENDING_NUMBER"
@@ -43,6 +46,7 @@ data class StandardEntryInput(
     val observation: String,
     val movementKind: String = "",
     val durationDays: Int = 0,
+    val durationIndefinite: Boolean = false,
     val beneficiary: String = "",
     val departureDate: String = "",
     val arrivalDate: String = "",
@@ -55,7 +59,8 @@ data class PermissionEntryInput(
     val numberR3: String,
     val departureDate: String,
     val arrivalDate: String,
-    val annualRight: Int,
-    val consumedRight: Int,
+    val annualRightYear: Int,
+    val consumedRightDetail: String,
     val durationDays: Int,
+    val durationIndefinite: Boolean,
 )
