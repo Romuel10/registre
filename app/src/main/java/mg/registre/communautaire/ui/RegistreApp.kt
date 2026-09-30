@@ -450,8 +450,11 @@ private fun RegisterListPage(
                     Column(Modifier.padding(24.dp)) {
                         Text("Aucune entrée", fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (state.selectedYear == now)
-                                "Le cahier est prêt. La première validation recevra le numéro 1."
+                            if (state.selectedYear == now && state.counterInitialized)
+                                "Le cahier est prêt. Le prochain numéro sera " +
+                                    state.nextOfficialNumber + state.selectedType.code + "."
+                            else if (state.selectedYear == now)
+                                "Avant la première saisie, l'application demandera le dernier numéro déjà utilisé."
                             else
                                 "Aucune donnée enregistrée pour cet exercice.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -731,7 +734,7 @@ private fun EntryCard(
                         )
                     } else {
                         DataLine("Durée", entry.durationDays.toString() + " jour(s)")
-                        DataLine("Arrivée", entry.arrivalDate)
+                        DataLine("Arrivée", DateFormats.display(entry.arrivalDate))
                     }
                 }
             }
