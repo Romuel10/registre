@@ -10,7 +10,36 @@ Application Android pour partager la numérotation des cahiers administratifs et
 - /3.S
 - /3.PERM
 
-Chaque nouvelle année utilise une séquence indépendante qui repart automatiquement à 1. Les années précédentes restent consultables et sont considérées comme clôturées.
+Les années précédentes restent consultables et sont considérées comme clôturées.
+
+## Initialisation de la numérotation
+
+Pour un cahier encore vide dans l'application, le premier ajout ne démarre plus automatiquement à 1 sans vérification.
+
+Avant la première saisie, l'application demande **le dernier numéro déjà utilisé dans le cahier réel** :
+
+- si l'utilisateur saisit par exemple `50`, le prochain numéro sera automatiquement `51` ;
+- s'il choisit **Début à 1**, le premier numéro sera `1` ;
+- s'il choisit **Ignorer**, le premier numéro sera également `1`.
+
+Une fois initialisée, la suite est automatique et le paramétrage n'est plus redemandé.
+
+Pour 2026, les données actuelles ont été corrigées ainsi :
+- /2 : dernier numéro enregistré = **281/2** ;
+- /3.PERM : dernier numéro enregistré = **18/3.PERM** ;
+- /3, /4 et /3.S : l'application demandera le dernier numéro au premier ajout.
+
+La pièce erronée `1/2` qui avait été créée pour test a été supprimée.
+
+## Format des dates
+
+Toutes les dates visibles dans l'application et dans les rappels sont affichées au format :
+
+`JJ-MM-AAAA`
+
+Exemple : `30-09-2026`.
+
+Les dates restent stockées en format standard dans la base pour garantir les calculs et tris fiables.
 
 ## Backend Supabase
 
@@ -29,6 +58,8 @@ Fonctions principales :
 - `public.registre_cancel_entry(uuid,text,text)`
 - `public.registre_delete_entry(uuid,text)`
 - `public.registre_integrity_check(integer,text)`
+- `public.registre_counter_status(integer,text)`
+- `public.registre_initialize_counter(integer,text,bigint)`
 
 ## Contrôle des doublons
 
@@ -60,7 +91,7 @@ Les cahiers **/2** et **/4** proposent trois natures :
 - message de déplacement ;
 - message de disponibilité.
 
-Quand l'utilisateur choisit **Message de disponibilité**, l'application affiche uniquement les messages de déplacement du même cahier qui n'ont pas encore reçu de disponibilité. Le message choisi est lié au nouveau message de disponibilité.
+Quand l'utilisateur choisit **Message de disponibilité**, l'application affiche uniquement les messages de déplacement du même cahier qui n'ont pas encore reçu de disponibilité.
 
 Un déplacement ne peut recevoir qu'un seul message de disponibilité actif.
 
@@ -77,7 +108,7 @@ Après sélection :
 - le message /2 ou /4 est lié techniquement à la permission /3.PERM ;
 - une même permission ne peut pas créer deux messages de déplacement actifs.
 
-Le serveur Supabase refait lui-même ce contrôle et ce calcul afin qu'un téléphone ne puisse pas envoyer une autre date d'arrivée.
+Le serveur Supabase refait lui-même ce contrôle et ce calcul.
 
 ## /3.PERM
 
@@ -120,6 +151,7 @@ Le téléphone créateur ne se notifie pas lui-même.
 - réglage de la taille du texte
 - écran de démarrage animé
 - calendrier Android pour les dates
+- dates au format JJ-MM-AAAA
 - menu d'actions pour annuler ou supprimer une entrée
 
 ## Mode hors ligne
@@ -129,6 +161,8 @@ Si Supabase n'est pas joignable pendant une saisie ordinaire :
 2. aucun faux numéro officiel n'est inventé ;
 3. WorkManager attend le retour du réseau ;
 4. Supabase attribue ensuite le prochain numéro officiel disponible.
+
+L'initialisation d'un cahier totalement nouveau nécessite une première connexion au serveur afin de fixer correctement le point de départ partagé.
 
 ## Sécurité
 
@@ -140,7 +174,7 @@ Si Supabase n'est pas joignable pendant une saisie ordinaire :
 
 ## Version
 
-Version Android actuelle : **1.4.0**
+Version Android actuelle : **1.5.0**
 
 ## Construction
 
