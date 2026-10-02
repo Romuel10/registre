@@ -232,6 +232,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     restartObservation()
                     restartOpenMovements()
                     restartAvailablePermissions()
+                    refreshCounterStatus()
                 }
                 .onFailure {
                     _uiState.value = _uiState.value.copy(
@@ -250,6 +251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     restartObservation()
                     restartOpenMovements()
+                    refreshCounterStatus()
                 }
                 .onFailure {
                     _uiState.value = _uiState.value.copy(
