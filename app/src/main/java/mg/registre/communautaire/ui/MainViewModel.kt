@@ -228,7 +228,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { repository.cancelEntry(entryId, reason) }
                 .onSuccess {
-                    _uiState.value = _uiState.value.copy(notice = "Entrée annulée. Son numéro reste réservé et ne sera pas réutilisé.")
+                    _uiState.value = _uiState.value.copy(notice = "Entrée annulée. Elle disparaît du registre et son numéro redevient disponible.")
                     restartObservation()
                     restartOpenMovements()
                     restartAvailablePermissions()
@@ -246,7 +246,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { repository.deleteEntry(entryId) }
                 .onSuccess {
                     _uiState.value = _uiState.value.copy(
-                        notice = "Entrée supprimée de l'affichage. Le numéro reste définitivement réservé dans l'historique."
+                        notice = "Entrée supprimée. Elle disparaît du registre et son numéro redevient disponible."
                     )
                     restartObservation()
                     restartOpenMovements()
