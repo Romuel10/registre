@@ -456,6 +456,7 @@ class RegistreRepository(private val context: Context) {
             "?select=*" +
             "&year=eq.$year" +
             "&register_type=eq.$encodedType" +
+            "&status=eq.NUMBERED" +
             "&deleted_at=is.null" +
             "&order=official_number.asc"
 
