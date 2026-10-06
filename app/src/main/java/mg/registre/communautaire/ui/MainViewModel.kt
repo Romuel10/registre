@@ -170,9 +170,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     saving = false,
-                    notice = if (input.messageKind == RegisterEntry.MESSAGE_AVAILABILITY)
-                        "Message de disponibilité enregistré et lié au déplacement sélectionné."
-                    else null,
+                    notice = if (input.messageKind == RegisterEntry.MESSAGE_AVAILABILITY) {
+                        if (input.relatedMovementId.isBlank())
+                            "Message de disponibilité simple enregistré."
+                        else
+                            "Message de disponibilité enregistré et lié au déplacement sélectionné."
+                    } else null,
                 )
                 onSaved()
                 restartObservation()
