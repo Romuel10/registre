@@ -797,6 +797,7 @@ private fun StandardForm(
     var durationText by remember { mutableStateOf("1") }
     var durationIndefinite by remember { mutableStateOf(false) }
     var selectedMovementId by remember { mutableStateOf("") }
+    var availabilityLinkedToMovement by remember { mutableStateOf(false) }
     var selectedPermissionId by remember { mutableStateOf("") }
 
     val workflowType = type == RegisterType.R2 || type == RegisterType.R4
@@ -900,6 +901,8 @@ private fun StandardForm(
                         selected = messageMode == RegisterEntry.MESSAGE_AVAILABILITY,
                         onClick = {
                             messageMode = RegisterEntry.MESSAGE_AVAILABILITY
+                            availabilityLinkedToMovement = false
+                            selectedMovementId = ""
                             durationIndefinite = false
                         },
                         label = { Text("Message de disponibilité") },
@@ -918,47 +921,81 @@ private fun StandardForm(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
-                        "Déplacement concerné",
+                        "Type de disponibilité",
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
-                        "Cette liste montre les messages de déplacement qui n'ont pas encore reçu de message de disponibilité.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    if (openMovements.isEmpty()) {
-                        Text("Aucun déplacement en attente de disponibilité.")
-                    } else {
-                        openMovements.forEach { movement ->
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
                             FilterChip(
-                                selected = selectedMovementId == movement.id,
+                                selected = !availabilityLinkedToMovement,
                                 onClick = {
-                                    selectedMovementId = movement.id
-                                    beneficiary = movement.beneficiary
-                                    label = "Message de disponibilité - " +
-                                        movement.beneficiary.ifBlank { movement.label }
-                                    origin = "Suite au " + movement.displayNumber
+                                    availabilityLinkedToMovement = false
+                                    selectedMovementId = ""
                                 },
-                                label = {
-                                    Text(
-                                        movement.displayNumber + " · " +
-                                            movement.beneficiary.ifBlank { movement.label } +
-                                            (
-                                                if (movement.movementKind.isNotBlank())
-                                                    " · " + movement.movementKind
-                                                else
-                                                    ""
-                                            ) +
-                                            (
-                                                if (movement.departureDate.isNotBlank())
-                                                    " · départ " + DateFormats.display(movement.departureDate)
-                                                else
-                                                    ""
-                                            )
-                                    )
-                                },
+                                label = { Text("Disponibilité simple") },
                             )
+                        }
+                        item {
+                            FilterChip(
+                                selected = availabilityLinkedToMovement,
+                                onClick = {
+                                    availabilityLinkedToMovement = true
+                                },
+                                label = { Text("Liée à un déplacement") },
+                            )
+                        }
+                    }
+
+                    if (!availabilityLinkedToMovement) {
+                        Text(
+                            "Disponibilité autonome : aucun message de déplacement n'est requis.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            "Déplacement concerné",
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "Cette liste montre les messages de déplacement qui n'ont pas encore reçu de message de disponibilité.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        if (openMovements.isEmpty()) {
+                            Text("Aucun déplacement en attente de disponibilité.")
+                        } else {
+                            openMovements.forEach { movement ->
+                                FilterChip(
+                                    selected = selectedMovementId == movement.id,
+                                    onClick = {
+                                        selectedMovementId = movement.id
+                                        beneficiary = movement.beneficiary
+                                        label = "Message de disponibilité - " +
+                                            movement.beneficiary.ifBlank { movement.label }
+                                        origin = "Suite au " + movement.displayNumber
+                                    },
+                                    label = {
+                                        Text(
+                                            movement.displayNumber + " · " +
+                                                movement.beneficiary.ifBlank { movement.label } +
+                                                (
+                                                    if (movement.movementKind.isNotBlank())
+                                                        " · " + movement.movementKind
+                                                    else
+                                                        ""
+                                                ) +
+                                                (
+                                                    if (movement.departureDate.isNotBlank())
+                                                        " · départ " + DateFormats.display(movement.departureDate)
+                                                    else
+                                                        ""
+                                                )
+                                        )
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -1182,7 +1219,8 @@ private fun StandardForm(
                         label = label,
                         observation = observation,
                         movementKind = when {
-                            availabilityMode -> availabilitySubtype
+                            availabilityMode && availabilityLinkedToMovement -> availabilitySubtype
+                            availabilityMode -> "disponibilité simple"
                             workflowType && movementMode -> movementSubtype
                             movementMode -> "déplacement"
                             else -> ""
@@ -1213,7 +1251,10 @@ private fun StandardForm(
                             else -> RegisterEntry.MESSAGE_ORDINARY
                         },
                         relatedMovementId =
-                            if (availabilityMode) selectedMovementId else "",
+                            if (availabilityMode && availabilityLinkedToMovement)
+                                selectedMovementId
+                            else
+                                "",
                         relatedPermissionId =
                             if (permissionMovement) selectedPermissionId else "",
                     )
@@ -1226,6 +1267,7 @@ private fun StandardForm(
                 label.isNotBlank() &&
                 (
                     !availabilityMode ||
+                    !availabilityLinkedToMovement ||
                     (
                         selectedMovementId.isNotBlank() &&
                         beneficiary.isNotBlank()
