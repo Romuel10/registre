@@ -23,6 +23,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -92,9 +93,15 @@ class MainActivity : ComponentActivity() {
                         onClearNotice = viewModel::clearNotice,
                     )
                 } else {
+                    val registerState = if (state.role == AccessRole.VIEWER) {
+                        state.copy(counterLoading = true)
+                    } else {
+                        state
+                    }
+
                     Box(Modifier.fillMaxSize()) {
                         RegistreApp(
-                            state = state,
+                            state = registerState,
                             onSelectType = viewModel::selectType,
                             onSelectYear = viewModel::selectYear,
                             onFontScale = viewModel::setFontScale,
@@ -108,16 +115,20 @@ class MainActivity : ComponentActivity() {
                             onClearNotice = viewModel::clearNotice,
                         )
 
-                        if (state.role == AccessRole.ADMIN) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(16.dp),
-                            ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(16.dp),
+                        ) {
+                            if (state.role == AccessRole.ADMIN) {
                                 AdminAccessControl(
                                     onAddMember = viewModel::addMember,
                                     onSignOut = viewModel::signOut,
                                 )
+                            } else {
+                                OutlinedButton(onClick = viewModel::signOut) {
+                                    Text("Déconnexion")
+                                }
                             }
                         }
                     }
