@@ -38,7 +38,31 @@ fun AuthenticationGate(
     onSignIn: (String, String) -> Unit,
     onSignUp: (String, String) -> Unit,
     onSignOut: () -> Unit,
+    onClearError: () -> Unit,
+    onClearNotice: () -> Unit,
 ) {
+    state.error?.let { message ->
+        AlertDialog(
+            onDismissRequest = onClearError,
+            title = { Text("Connexion") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = onClearError) { Text("Fermer") }
+            },
+        )
+    }
+
+    state.notice?.let { message ->
+        AlertDialog(
+            onDismissRequest = onClearNotice,
+            title = { Text("Information") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = onClearNotice) { Text("D'accord") }
+            },
+        )
+    }
+
     if (state.authLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
