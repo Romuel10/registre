@@ -25,7 +25,7 @@ class AuthSessionManager(context: Context) {
     private val store = SecureStore(context, "registre_auth")
 
     suspend fun restoreSession(): AuthSession? = withContext(Dispatchers.IO) {
-        if (store.getString(KEY_REFRESH_TOKEN).isBlank()) return@withContext null
+        if (!hasStoredSession()) return@withContext null
         runCatching {
             val token = validAccessToken()
             claimAccess(token)
@@ -75,6 +75,8 @@ class AuthSessionManager(context: Context) {
     fun signOut() {
         clearSession()
     }
+
+    fun hasStoredSession(): Boolean = store.getString(KEY_REFRESH_TOKEN).isNotBlank()
 
     fun currentUserId(): String = store.getString(KEY_USER_ID)
 
