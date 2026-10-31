@@ -37,6 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import mg.registre.communautaire.security.AccessRole
+import mg.registre.communautaire.ui.AdminAccessControl
+import mg.registre.communautaire.ui.AuthenticationGate
 import mg.registre.communautaire.ui.MainViewModel
 import mg.registre.communautaire.ui.RegistreApp
 import mg.registre.communautaire.ui.theme.RegistreTheme
@@ -64,7 +67,7 @@ class MainActivity : ComponentActivity() {
 
                 if (splash) {
                     ProfessionalSplash()
-                } else {
+                } else if (!state.backendConfigured) {
                     RegistreApp(
                         state = state,
                         onSelectType = viewModel::selectType,
@@ -79,6 +82,45 @@ class MainActivity : ComponentActivity() {
                         onClearError = viewModel::clearError,
                         onClearNotice = viewModel::clearNotice,
                     )
+                } else if (state.authLoading || !state.authenticated || !state.accessApproved) {
+                    AuthenticationGate(
+                        state = state,
+                        onSignIn = viewModel::signIn,
+                        onSignUp = viewModel::signUp,
+                        onSignOut = viewModel::signOut,
+                        onClearError = viewModel::clearError,
+                        onClearNotice = viewModel::clearNotice,
+                    )
+                } else {
+                    Box(Modifier.fillMaxSize()) {
+                        RegistreApp(
+                            state = state,
+                            onSelectType = viewModel::selectType,
+                            onSelectYear = viewModel::selectYear,
+                            onFontScale = viewModel::setFontScale,
+                            onSaveStandard = viewModel::saveStandard,
+                            onSavePermission = viewModel::savePermission,
+                            onCloseMovement = viewModel::closeMovement,
+                            onCancelEntry = viewModel::cancelEntry,
+                            onDeleteEntry = viewModel::deleteEntry,
+                            onInitializeCounter = viewModel::initializeCounter,
+                            onClearError = viewModel::clearError,
+                            onClearNotice = viewModel::clearNotice,
+                        )
+
+                        if (state.role == AccessRole.ADMIN) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(16.dp),
+                            ) {
+                                AdminAccessControl(
+                                    onAddMember = viewModel::addMember,
+                                    onSignOut = viewModel::signOut,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
