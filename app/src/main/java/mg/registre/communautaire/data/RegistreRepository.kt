@@ -27,13 +27,17 @@ import mg.registre.communautaire.domain.StandardEntryInput
 import mg.registre.communautaire.reminder.NumberReservationWorker
 import mg.registre.communautaire.reminder.PermissionWorkflowNotifier
 import mg.registre.communautaire.reminder.ReminderScheduler
+import mg.registre.communautaire.security.AuthSessionManager
+import mg.registre.communautaire.security.SecureStore
 import org.json.JSONArray
 import org.json.JSONObject
 
 class RegistreRepository(private val context: Context) {
     private val pendingPrefs = context.getSharedPreferences("supabase_pending_entries", Context.MODE_PRIVATE)
+    private val pendingStore = SecureStore(context, "registre_pending_secure")
     private val devicePrefs = context.getSharedPreferences("registre_device", Context.MODE_PRIVATE)
     private val notificationPrefs = context.getSharedPreferences("community_notifications", Context.MODE_PRIVATE)
+    private val auth = AuthSessionManager(context)
 
     val deviceId: String by lazy {
         devicePrefs.getString(DEVICE_ID_KEY, null)
@@ -59,7 +63,7 @@ class RegistreRepository(private val context: Context) {
                     .thenBy { it.createdAtMillis }
             )
             emit(combined)
-            delay(4_000)
+            delay(30_000)
         }
     }
 
@@ -96,7 +100,7 @@ class RegistreRepository(private val context: Context) {
 
             last = current
             emit(current)
-            delay(4_000)
+            delay(30_000)
         }
     }
 
@@ -137,7 +141,7 @@ class RegistreRepository(private val context: Context) {
 
             last = current
             emit(current)
-            delay(4_000)
+            delay(30_000)
         }
     }
 
@@ -505,6 +509,7 @@ class RegistreRepository(private val context: Context) {
             connection.connectTimeout = 12_000
             connection.readTimeout = 20_000
             connection.setRequestProperty("apikey", SupabaseConfig.publishableKey)
+            connection.setRequestProperty("Authorization", "Bearer ${auth.currentAccessTokenBlocking()}")
             connection.setRequestProperty("Accept", "application/json")
 
             if (body != null) {
@@ -636,7 +641,7 @@ class RegistreRepository(private val context: Context) {
                 .put("localId", localId)
                 .put("payload", JSONObject(payload.toString()))
         )
-        pendingPrefs.edit().putString(PENDING_KEY, array.toString()).apply()
+        pendingStore.putString(PENDING_KEY, array.toString())
     }
 
     @Synchronized
@@ -651,7 +656,7 @@ class RegistreRepository(private val context: Context) {
                 break
             }
         }
-        if (changed) pendingPrefs.edit().putString(PENDING_KEY, source.toString()).apply()
+        if (changed) pendingStore.putString(PENDING_KEY, source.toString())
         return changed
     }
 
@@ -668,7 +673,7 @@ class RegistreRepository(private val context: Context) {
                 target.put(item)
             }
         }
-        if (found) pendingPrefs.edit().putString(PENDING_KEY, target.toString()).apply()
+        if (found) pendingStore.putString(PENDING_KEY, target.toString())
         return found
     }
 
@@ -680,12 +685,12 @@ class RegistreRepository(private val context: Context) {
             val item = source.getJSONObject(index)
             if (item.optString("localId") != localId) target.put(item)
         }
-        pendingPrefs.edit().putString(PENDING_KEY, target.toString()).apply()
+        pendingStore.putString(PENDING_KEY, target.toString())
     }
 
     @Synchronized
     private fun readPendingArray(): JSONArray =
-        runCatching { JSONArray(pendingPrefs.getString(PENDING_KEY, "[]") ?: "[]") }
+        runCatching { JSONArray(pendingStore.getString(PENDING_KEY, "[]")) }
             .getOrElse { JSONArray() }
 
     private fun queueClosure(entryId: String) {
