@@ -1,191 +1,194 @@
 # Registre Communautaire
 
-Application Android pour partager la numérotation des cahiers administratifs et éviter les doublons entre utilisateurs.
+Application Android de numérotation administrative partagée pour éviter les doublons entre plusieurs utilisateurs et plusieurs téléphones.
+
+## Version
+
+Version Android : **1.6.0**.
 
 ## Cahiers gérés
 
-- /2
-- /3
-- /4
-- /3.S
-- /3.PERM
+- `/2`
+- `/3`
+- `/4`
+- `/3.S`
+- `/3.PERM`
 
 Les années précédentes restent consultables et sont considérées comme clôturées.
 
-## Initialisation de la numérotation
+## Sécurité et accès
 
-Pour un cahier encore vide dans l'application, le premier ajout ne démarre plus automatiquement à 1 sans vérification.
+Depuis la version 1.6.0, l'accès au registre nécessite une session **Supabase Auth**.
 
-Avant la première saisie, l'application demande **le dernier numéro déjà utilisé dans le cahier réel** :
+Trois rôles sont disponibles :
 
-- si l'utilisateur saisit par exemple `50`, le prochain numéro sera automatiquement `51` ;
-- s'il choisit **Début à 1**, le premier numéro sera `1` ;
-- s'il choisit **Ignorer**, le premier numéro sera également `1`.
+- `admin` : lecture, écriture, initialisation des compteurs et gestion des membres ;
+- `agent` : lecture et écriture ;
+- `viewer` : lecture seule.
 
-Une fois initialisée, la suite est automatique et le paramétrage n'est plus redemandé.
+Les données du registre ne sont plus lisibles par le rôle Supabase `anon`.
 
-Pour 2026, les données actuelles ont été corrigées ainsi :
-- /2 : dernier numéro enregistré = **281/2** ;
-- /3.PERM : dernier numéro enregistré = **18/3.PERM** ;
-- /3, /4 et /3.S : l'application demandera le dernier numéro au premier ajout.
+Le premier compte authentifié qui réclame l'accès après l'application de la migration de sécurité devient administrateur si aucun membre n'existe encore. Les comptes suivants doivent être ajoutés par un administrateur.
 
-La pièce erronée `1/2` qui avait été créée pour test a été supprimée.
+Les jetons d'authentification et les brouillons hors connexion sont stockés localement avec chiffrement AES/GCM adossé à Android Keystore. La sauvegarde Android de l'application est désactivée afin d'éviter l'export involontaire de données sensibles.
 
-## Format des dates
-
-Toutes les dates visibles dans l'application et dans les rappels sont affichées au format :
-
-`JJ-MM-AAAA`
-
-Exemple : `30-09-2026`.
-
-Les dates restent stockées en format standard dans la base pour garantir les calculs et tris fiables.
-
-## Backend Supabase
-
-L'application utilise **Supabase / PostgreSQL**.
-
-Projet utilisé :
-- nom : `Romuel-apps`
-- project ref : `gmlofgsgnbbcbefogpww`
-
-Tables principales :
-- `public.registre_entries`
-- `public.registre_counters`
-
-Fonctions principales :
-- `public.registre_create_entry(jsonb)`
-- `public.registre_cancel_entry(uuid,text,text)`
-- `public.registre_delete_entry(uuid,text)`
-- `public.registre_integrity_check(integer,text)`
-- `public.registre_counter_status(integer,text)`
-- `public.registre_initialize_counter(integer,text,bigint)`
-
-## Contrôle des doublons
+## Numérotation
 
 Le numéro officiel est attribué uniquement par PostgreSQL.
 
-Avant toute création :
-1. Supabase vérifie si un doublon existe déjà dans le cahier et l'année concernés ;
-2. si un doublon est détecté, l'enregistrement est bloqué ;
-3. le compteur est verrouillé transactionnellement ;
-4. le prochain numéro est calculé à partir du compteur **et** du plus grand numéro réellement présent ;
-5. une contrainte unique protège encore `(year, register_type, official_number)`.
+Pour un cahier encore vide dans l'application, le premier ajout demande le dernier numéro déjà utilisé dans le cahier réel :
 
-L'application effectue aussi un contrôle d'intégrité et désactive le bouton de création si une anomalie de numérotation est détectée.
+- si le dernier numéro est `50`, le prochain sera `51` ;
+- si le cahier commence dans l'application, l'administrateur peut choisir un départ à `1`.
+
+Pour les valeurs historiques configurées en 2026 :
+
+- `/2` : dernier numéro initial = `281/2` ;
+- `/3.PERM` : dernier numéro initial = `18/3.PERM`.
+
+### Les numéros ne sont jamais réutilisés
+
+À partir de la version 1.6.0, un numéro attribué reste définitivement réservé, même si l'entrée est ensuite annulée ou supprimée de la liste active.
+
+Exemple : si `295/2` est annulé ou supprimé, un nouvel enregistrement ne doit jamais reprendre `295/2`.
+
+La base existante contient un ancien doublon historique sur `295/2` issu de l'ancien mécanisme de recyclage : une ancienne ligne supprimée et une ligne active. La migration 1.6.0 conserve cet historique au lieu de le falsifier, mais empêche toute nouvelle réutilisation.
+
+## Contrôle des doublons
+
+Avant toute création :
+
+1. Supabase vérifie l'intégrité du cahier et de l'année ;
+2. le compteur est verrouillé transactionnellement ;
+3. le prochain numéro est calculé à partir du compteur et des numéros historiques ;
+4. les anciens numéros libérés ne sont plus remis en circulation ;
+5. les contraintes PostgreSQL continuent de protéger les entrées actives contre les doublons.
+
+L'application bloque aussi la création si une anomalie d'intégrité est détectée.
 
 ## Annulation et suppression
 
-Une entrée créée sur le téléphone peut être :
-- **annulée** : elle reste visible avec son numéro et son motif d'annulation ;
-- **supprimée de l'affichage** : la ligne reste conservée côté base pour audit, mais n'apparaît plus dans la liste active.
+Une entrée peut être annulée ou supprimée de l'affichage sans effacer son historique technique.
 
-Dans les deux cas, **le numéro n'est jamais réutilisé**.
+- un `agent` peut modifier uniquement les entrées dont il est le créateur authentifié ;
+- un `admin` peut administrer les entrées ;
+- un `viewer` est en lecture seule.
 
-Un brouillon local encore sans numéro peut être supprimé directement.
+Le paramètre historique `creator_device_id` n'est plus utilisé comme preuve d'identité pour les autorisations serveur. L'autorisation repose sur `auth.uid()` et le rôle du membre.
 
-## /2 et /4 : déplacement et disponibilité
+## /2 et /4 : déplacements et disponibilités
 
-Les cahiers **/2** et **/4** proposent trois natures :
+Les cahiers `/2` et `/4` proposent :
+
 - pièce ordinaire ;
 - message de déplacement ;
 - message de disponibilité.
 
-Quand l'utilisateur choisit **Message de disponibilité**, l'application affiche uniquement les messages de déplacement du même cahier qui n'ont pas encore reçu de disponibilité.
+Une disponibilité peut être simple ou liée à un déplacement. Lorsqu'elle est liée, un déplacement actif ne peut recevoir qu'une seule disponibilité active.
 
-Un déplacement ne peut recevoir qu'un seul message de disponibilité actif.
+### Déplacement permission relié au /3.PERM
 
-### Déplacement perm relié au /3.PERM
-
-Quand le type **Déplacement perm** est choisi dans /2 ou /4, l'application ne demande plus de ressaisir manuellement le nom, la date de départ, le nombre de jours et la date d'arrivée.
-
-Elle affiche la liste des permissions enregistrées dans **/3.PERM** qui ne possèdent encore aucun message de déplacement actif dans /2 ou /4.
+Lorsqu'un `déplacement perm` est créé dans `/2` ou `/4`, l'application propose les permissions `/3.PERM` encore sans message de déplacement actif.
 
 Après sélection :
-- nom, matricule et grade servent de contrôle visuel ;
-- la date de départ et la durée proviennent du /3.PERM ;
-- la date d'arrivée est recalculée automatiquement avec la règle « jour du départ = jour 1 » ;
-- le message /2 ou /4 est lié techniquement à la permission /3.PERM ;
-- une même permission ne peut pas créer deux messages de déplacement actifs.
 
-Le serveur Supabase refait lui-même ce contrôle et ce calcul.
+- le nom, le matricule et le grade servent de contrôle visuel ;
+- la date de départ et la durée proviennent du `/3.PERM` ;
+- la date d'arrivée est recalculée automatiquement ;
+- la relation technique entre le déplacement et la permission est conservée ;
+- une même permission ne peut pas produire deux déplacements actifs.
 
 ## /3.PERM
 
 Pour une permission :
-- la date de départ se choisit dans un calendrier Android ;
-- le nombre de jours est saisi au clavier ;
-- le droit année accepte une année telle que `2026` ou `2025` ;
-- le droit consommé accepte un texte tel que `2025-20 jours` ;
-- une durée peut être déclarée indéterminée.
 
-Après chaque enregistrement /3.PERM, l'application rappelle immédiatement de créer dans **/2 ou /4** le message de déplacement **« déplacement perm »**.
+- la date de départ est choisie dans le calendrier Android ;
+- la durée est saisie en jours ou déclarée indéterminée ;
+- le droit année accepte une année telle que `2026` ;
+- le droit consommé accepte un texte tel que `2025-20 jours`.
 
-À la fin de la permission, l'application rappelle de créer dans **/2 ou /4** le message de disponibilité **« disponibilité perm »**.
-
-## Rappels hors connexion
-
-Pour une durée déterminée :
+La règle de calcul est :
 
 `date_arrivée = date_départ + (nombre_de_jours - 1)`
 
-Le jour du départ compte comme **jour 1**.
+Le jour du départ compte comme jour 1.
 
-Pour une durée indéterminée, Android programme un rappel local tous les 3 jours jusqu'à confirmation du retour.
+## Rappels et mode hors connexion
 
-Ces rappels reposent sur WorkManager et ne nécessitent pas de connexion Internet une fois programmés.
+WorkManager assure les rappels et la synchronisation lorsque le réseau revient.
 
-## Notifications communautaires
+Si Supabase n'est pas joignable pendant une saisie :
 
-Lorsqu'un autre appareil crée un nouveau /2, /3, /4, /3.S ou /3.PERM :
-- l'application ouverte vérifie rapidement les nouvelles entrées ;
-- en arrière-plan, WorkManager effectue une vérification périodique avec connexion réseau ;
-- une notification Android informe l'utilisateur.
+1. l'entrée reste en attente localement ;
+2. aucun faux numéro officiel n'est généré ;
+3. les données en attente sont chiffrées localement ;
+4. WorkManager synchronise après le retour du réseau et uniquement si une session authentifiée existe ;
+5. Supabase attribue alors le prochain numéro officiel.
 
-Le téléphone créateur ne se notifie pas lui-même.
+Les vérifications réseau en premier plan ont été espacées pour limiter la consommation de batterie et de données mobiles.
+
+## Backend Supabase
+
+Projet actuel : `Romuel-apps`.
+
+Tables principales :
+
+- `public.registre_entries`
+- `public.registre_counters`
+- `public.registre_recycled_numbers` — conservée pour compatibilité historique, mais le recyclage n'est plus utilisé ;
+- `public.registre_members` — membres et rôles de Registre Communautaire.
+
+Fonctions clientes principales :
+
+- `public.registre_claim_access()`
+- `public.registre_add_member_by_email(text,text)`
+- `public.registre_create_entry(jsonb)`
+- `public.registre_cancel_entry(uuid,text,text)`
+- `public.registre_delete_entry(uuid,text)`
+- `public.registre_close_movement(uuid,text)`
+- `public.registre_integrity_check(integer,text)`
+- `public.registre_counter_status(integer,text)`
+- `public.registre_initialize_counter(integer,text,bigint)`
+
+Les anciennes implémentations métier sont conservées derrière des wrappers de sécurité et ne sont plus exécutables directement par `anon` ou `authenticated`.
 
 ## Interface
 
-- Jetpack Compose + Material 3
-- cartes et formulaires modernisés
+- Kotlin
+- Jetpack Compose
+- Material 3
 - réglage de la taille du texte
 - écran de démarrage animé
-- calendrier Android pour les dates
-- dates au format JJ-MM-AAAA
-- menu d'actions pour annuler ou supprimer une entrée
-
-## Mode hors ligne
-
-Si Supabase n'est pas joignable pendant une saisie ordinaire :
-1. l'entrée reste localement en `PENDING_NUMBER` ;
-2. aucun faux numéro officiel n'est inventé ;
-3. WorkManager attend le retour du réseau ;
-4. Supabase attribue ensuite le prochain numéro officiel disponible.
-
-L'initialisation d'un cahier totalement nouveau nécessite une première connexion au serveur afin de fixer correctement le point de départ partagé.
-
-## Sécurité
-
-- Row Level Security est activé sur les tables du registre.
-- Les clients ne modifient pas directement les compteurs.
-- La numérotation passe par une fonction PostgreSQL transactionnelle.
-- L'application utilise uniquement une **publishable key** Supabase.
-- Aucune clé `service_role` ou clé secrète n'est incluse dans l'APK.
-
-## Version
-
-Version Android actuelle : **1.5.0**
+- calendrier Android
+- dates visibles au format `JJ-MM-AAAA`
+- écran de connexion
+- gestion des rôles par l'administrateur
 
 ## Construction
 
 JDK 17 et Android SDK requis.
 
 ```bash
+gradle :app:testDebugUnitTest
+gradle :app:lintDebug
 gradle :app:assembleDebug
 ```
 
-APK :
+APK généré :
 
 `app/build/outputs/apk/debug/app-debug.apk`
 
-GitHub Actions exécute les tests unitaires puis construit automatiquement l'APK.
+GitHub Actions exécute les tests unitaires, Android Lint puis construit automatiquement l'APK.
+
+## Ordre de déploiement de la version 1.6.0
+
+Pour éviter de couper l'accès aux anciennes versions :
+
+1. fusionner et laisser GitHub Actions valider le code 1.6.0 ;
+2. récupérer l'APK 1.6.0 ;
+3. appliquer la migration `20261031104500_secure_registre_access_and_never_reuse_numbers.sql` sur Supabase ;
+4. installer immédiatement l'APK 1.6.0 ;
+5. connecter le premier compte autorisé afin qu'il devienne administrateur ;
+6. ajouter les autres comptes depuis le panneau `Accès`.
+
+L'ancienne version utilisant des appels anonymes ne pourra plus accéder aux données après l'application de la migration de sécurité.
