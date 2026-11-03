@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -11,8 +12,8 @@ android {
         applicationId = "mg.registre.communautaire"
         minSdk = 24
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.6.0"
+        versionCode = 9
+        versionName = "1.7.0"
 
         buildConfigField("String", "SUPABASE_URL", "\"https://gmlofgsgnbbcbefogpww.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_5TlVWknK1BODxwWqw4efEA_y4DI-JRP\"")
@@ -57,6 +58,15 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("androidx.work:work-runtime-ktx:2.12.0")
+
+    val roomVersion = "2.8.5"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
+
+    implementation(platform("io.github.jan-tennert.supabase:bom:3.8.0"))
+    implementation("io.github.jan-tennert.supabase:realtime-kt")
+    implementation("io.ktor:ktor-client-okhttp:3.4.0")
 
     testImplementation("junit:junit:4.13.2")
 }
