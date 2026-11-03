@@ -28,6 +28,7 @@ data class MainUiState(
     val authLoading: Boolean = true,
     val authenticated: Boolean = false,
     val accessApproved: Boolean = false,
+    val bootstrapRequired: Boolean = false,
     val userId: String = "",
     val email: String = "",
     val role: AccessRole? = null,
@@ -88,6 +89,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         authLoading = false,
                         authenticated = false,
                         accessApproved = false,
+                        bootstrapRequired = false,
                         error = it.message ?: "Connexion impossible.",
                     )
                 }
@@ -128,6 +130,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun bootstrapAdmin(code: String) {
+        if (code.isBlank()) {
+            _uiState.value = _uiState.value.copy(error = "Saisissez le code d'amorçage administrateur.")
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(authLoading = true, error = null)
+            runCatching { auth.bootstrapAdmin(code) }
+                .onSuccess(::applySession)
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(
+                        authLoading = false,
+                        error = it.message ?: "Impossible d'activer le premier administrateur.",
+                    )
+                }
+        }
+    }
+
     fun signOut() {
         stopRegistryJobs()
         auth.signOut()
@@ -135,6 +155,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             authLoading = false,
             authenticated = false,
             accessApproved = false,
+            bootstrapRequired = false,
             userId = "",
             email = "",
             role = null,
@@ -419,6 +440,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             authLoading = false,
                             authenticated = false,
                             accessApproved = false,
+                            bootstrapRequired = false,
                             loading = false,
                         )
                     } else {
@@ -430,6 +452,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         authLoading = false,
                         authenticated = false,
                         accessApproved = false,
+                        bootstrapRequired = false,
                         loading = false,
                     )
                 }
@@ -441,6 +464,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             authLoading = false,
             authenticated = true,
             accessApproved = session.approved,
+            bootstrapRequired = session.bootstrapRequired,
             userId = session.userId,
             email = session.email,
             role = session.role,
