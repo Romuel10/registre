@@ -14,6 +14,7 @@ data class AuthSession(
     val email: String,
     val role: AccessRole?,
     val approved: Boolean,
+    val bootstrapRequired: Boolean = false,
 )
 
 data class SignUpResult(
@@ -62,6 +63,15 @@ class AuthSessionManager(context: Context) {
         }
     }
 
+    suspend fun bootstrapAdmin(code: String): AuthSession = withContext(Dispatchers.IO) {
+        val token = validAccessToken()
+        val body = JSONObject()
+            .put("p_bootstrap_code", code.trim().uppercase())
+            .toString()
+        apiRequest("POST", "/rest/v1/rpc/registre_claim_admin", body, token)
+        claimAccess(token)
+    }
+
     suspend fun addMember(email: String, role: AccessRole): AuthSession = withContext(Dispatchers.IO) {
         val token = validAccessToken()
         val body = JSONObject()
@@ -84,9 +94,7 @@ class AuthSessionManager(context: Context) {
 
     fun currentRole(): AccessRole? = AccessRole.fromWire(store.getString(KEY_ROLE))
 
-    fun currentAccessTokenBlocking(): String {
-        return validAccessToken()
-    }
+    fun currentAccessTokenBlocking(): String = validAccessToken()
 
     private fun claimAccess(token: String): AuthSession {
         val response = apiRequest("POST", "/rest/v1/rpc/registre_claim_access", "{}", token)
@@ -95,6 +103,7 @@ class AuthSessionManager(context: Context) {
         val role = AccessRole.fromWire(obj.optString("role"))
         val userId = obj.optString("userId").ifBlank { store.getString(KEY_USER_ID) }
         val email = obj.optString("email").ifBlank { store.getString(KEY_EMAIL) }
+        val bootstrapRequired = obj.optBoolean("bootstrapRequired", false)
 
         store.putString(KEY_USER_ID, userId)
         store.putString(KEY_EMAIL, email)
@@ -105,6 +114,7 @@ class AuthSessionManager(context: Context) {
             email = email,
             role = role,
             approved = approved,
+            bootstrapRequired = bootstrapRequired,
         )
     }
 
