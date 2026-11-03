@@ -18,10 +18,20 @@ import mg.registre.communautaire.domain.RegisterEntry
 import mg.registre.communautaire.domain.RegisterType
 import mg.registre.communautaire.domain.StandardEntryInput
 import mg.registre.communautaire.reminder.CommunityNotificationHelper
+import mg.registre.communautaire.security.AccessRole
+import mg.registre.communautaire.security.AuthSession
+import mg.registre.communautaire.security.AuthSessionManager
 
 data class MainUiState(
     val backendConfigured: Boolean = false,
     val deviceId: String = "",
+    val authLoading: Boolean = true,
+    val authenticated: Boolean = false,
+    val accessApproved: Boolean = false,
+    val bootstrapRequired: Boolean = false,
+    val userId: String = "",
+    val email: String = "",
+    val role: AccessRole? = null,
     val selectedYear: Int = LocalDate.now().year,
     val selectedType: RegisterType = RegisterType.R2,
     val entries: List<RegisterEntry> = emptyList(),
@@ -41,6 +51,7 @@ data class MainUiState(
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RegistreRepository(application)
+    private val auth = AuthSessionManager(application)
     private val prefs = application.getSharedPreferences("settings", 0)
     private val _uiState = MutableStateFlow(
         MainUiState(
@@ -54,15 +65,128 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var observationJob: Job? = null
     private var openMovementsJob: Job? = null
     private var availablePermissionsJob: Job? = null
+    private var communityAlertsJob: Job? = null
 
     init {
-        _uiState.value = _uiState.value.copy(loading = false)
-        if (_uiState.value.backendConfigured) {
-            restartObservation()
-            restartOpenMovements()
-            restartAvailablePermissions()
-            refreshCounterStatus()
-            startForegroundCommunityAlerts()
+        if (!_uiState.value.backendConfigured) {
+            _uiState.value = _uiState.value.copy(authLoading = false, loading = false)
+        } else {
+            restoreSession()
+        }
+    }
+
+    fun signIn(email: String, password: String) {
+        if (email.isBlank() || password.isBlank()) {
+            _uiState.value = _uiState.value.copy(error = "Email et mot de passe requis.")
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(authLoading = true, error = null)
+            runCatching { auth.signIn(email, password) }
+                .onSuccess(::applySession)
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(
+                        authLoading = false,
+                        authenticated = false,
+                        accessApproved = false,
+                        bootstrapRequired = false,
+                        error = it.message ?: "Connexion impossible.",
+                    )
+                }
+        }
+    }
+
+    fun signUp(email: String, password: String) {
+        if (email.isBlank() || password.length < 8) {
+            _uiState.value = _uiState.value.copy(
+                error = "Utilisez un email valide et un mot de passe d'au moins 8 caractères."
+            )
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(authLoading = true, error = null)
+            runCatching { auth.signUp(email, password) }
+                .onSuccess { result ->
+                    if (result.signedIn) {
+                        val session = auth.restoreSession()
+                        if (session != null) applySession(session)
+                        else _uiState.value = _uiState.value.copy(authLoading = false)
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            authLoading = false,
+                            notice = if (result.needsEmailConfirmation)
+                                "Compte créé. Confirmez votre email puis connectez-vous."
+                            else
+                                "Compte créé. Connectez-vous.",
+                        )
+                    }
+                }
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(
+                        authLoading = false,
+                        error = it.message ?: "Création du compte impossible.",
+                    )
+                }
+        }
+    }
+
+    fun bootstrapAdmin(code: String) {
+        if (code.isBlank()) {
+            _uiState.value = _uiState.value.copy(error = "Saisissez le code d'amorçage administrateur.")
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(authLoading = true, error = null)
+            runCatching { auth.bootstrapAdmin(code) }
+                .onSuccess(::applySession)
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(
+                        authLoading = false,
+                        error = it.message ?: "Impossible d'activer le premier administrateur.",
+                    )
+                }
+        }
+    }
+
+    fun signOut() {
+        stopRegistryJobs()
+        auth.signOut()
+        _uiState.value = _uiState.value.copy(
+            authLoading = false,
+            authenticated = false,
+            accessApproved = false,
+            bootstrapRequired = false,
+            userId = "",
+            email = "",
+            role = null,
+            entries = emptyList(),
+            openMovements = emptyList(),
+            availablePermissions = emptyList(),
+            counterInitialized = false,
+            lastOfficialNumber = 0,
+            nextOfficialNumber = 1,
+            loading = false,
+            error = null,
+        )
+    }
+
+    fun addMember(email: String, role: AccessRole) {
+        if (_uiState.value.role != AccessRole.ADMIN) {
+            _uiState.value = _uiState.value.copy(error = "Action réservée à l'administrateur.")
+            return
+        }
+        viewModelScope.launch {
+            runCatching { auth.addMember(email, role) }
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(
+                        notice = "Accès ${role.wireValue} accordé à $email."
+                    )
+                }
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(
+                        error = it.message ?: "Impossible d'ajouter ce membre."
+                    )
+                }
         }
     }
 
@@ -87,6 +211,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun initializeCounter(lastUsedNumber: Long, onReady: () -> Unit) {
         val state = _uiState.value
+        if (state.role != AccessRole.ADMIN) {
+            _uiState.value = state.copy(error = "Seul un administrateur peut initialiser un cahier.")
+            return
+        }
         if (state.selectedYear != LocalDate.now().year) {
             _uiState.value = state.copy(
                 error = "Seule l'année courante peut être initialisée."
@@ -115,8 +243,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         state.selectedType.code +
                         ". Le prochain numéro sera " +
                         status.nextNumber +
-                        state.selectedType.code +
-                        "."
+                        state.selectedType.code + "."
                 }
 
                 _uiState.value = _uiState.value.copy(
@@ -152,6 +279,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveStandard(input: StandardEntryInput, onSaved: () -> Unit) {
         val state = _uiState.value
+        if (state.role?.canWrite != true) {
+            _uiState.value = state.copy(error = "Votre rôle est en lecture seule.")
+            return
+        }
         if (state.selectedYear != LocalDate.now().year) {
             _uiState.value = state.copy(error = "Cette année est clôturée et reste en lecture seule.")
             return
@@ -193,6 +324,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun savePermission(input: PermissionEntryInput, onSaved: () -> Unit) {
         val state = _uiState.value
+        if (state.role?.canWrite != true) {
+            _uiState.value = state.copy(error = "Votre rôle est en lecture seule.")
+            return
+        }
         if (state.selectedYear != LocalDate.now().year) {
             _uiState.value = state.copy(error = "Cette année est clôturée et reste en lecture seule.")
             return
@@ -228,10 +363,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun cancelEntry(entryId: String, reason: String) {
+        if (_uiState.value.role?.canWrite != true) {
+            _uiState.value = _uiState.value.copy(error = "Votre rôle est en lecture seule.")
+            return
+        }
         viewModelScope.launch {
             runCatching { repository.cancelEntry(entryId, reason) }
                 .onSuccess {
-                    _uiState.value = _uiState.value.copy(notice = "Entrée annulée. Elle disparaît du registre et son numéro redevient disponible.")
+                    _uiState.value = _uiState.value.copy(
+                        notice = "Entrée annulée. Son numéro reste définitivement réservé."
+                    )
                     restartObservation()
                     restartOpenMovements()
                     restartAvailablePermissions()
@@ -246,11 +387,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteEntry(entryId: String) {
+        if (_uiState.value.role?.canWrite != true) {
+            _uiState.value = _uiState.value.copy(error = "Votre rôle est en lecture seule.")
+            return
+        }
         viewModelScope.launch {
             runCatching { repository.deleteEntry(entryId) }
                 .onSuccess {
                     _uiState.value = _uiState.value.copy(
-                        notice = "Entrée supprimée. Elle disparaît du registre et son numéro redevient disponible."
+                        notice = "Entrée supprimée de la liste active. Son numéro reste définitivement réservé."
                     )
                     restartObservation()
                     restartOpenMovements()
@@ -265,6 +410,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closeMovement(entryId: String) {
+        if (_uiState.value.role?.canWrite != true) {
+            _uiState.value = _uiState.value.copy(error = "Votre rôle est en lecture seule.")
+            return
+        }
         viewModelScope.launch {
             runCatching { repository.closeMovement(entryId) }
                 .onSuccess {
@@ -282,8 +431,71 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun restoreSession() {
+        viewModelScope.launch {
+            runCatching { auth.restoreSession() }
+                .onSuccess { session ->
+                    if (session == null) {
+                        _uiState.value = _uiState.value.copy(
+                            authLoading = false,
+                            authenticated = false,
+                            accessApproved = false,
+                            bootstrapRequired = false,
+                            loading = false,
+                        )
+                    } else {
+                        applySession(session)
+                    }
+                }
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(
+                        authLoading = false,
+                        authenticated = false,
+                        accessApproved = false,
+                        bootstrapRequired = false,
+                        loading = false,
+                    )
+                }
+        }
+    }
+
+    private fun applySession(session: AuthSession) {
+        _uiState.value = _uiState.value.copy(
+            authLoading = false,
+            authenticated = true,
+            accessApproved = session.approved,
+            bootstrapRequired = session.bootstrapRequired,
+            userId = session.userId,
+            email = session.email,
+            role = session.role,
+            loading = session.approved,
+            error = null,
+        )
+
+        if (session.approved) startRegistryJobs() else stopRegistryJobs()
+    }
+
+    private fun startRegistryJobs() {
+        restartObservation()
+        restartOpenMovements()
+        restartAvailablePermissions()
+        refreshCounterStatus()
+        startForegroundCommunityAlerts()
+    }
+
+    private fun stopRegistryJobs() {
+        observationJob?.cancel()
+        openMovementsJob?.cancel()
+        availablePermissionsJob?.cancel()
+        communityAlertsJob?.cancel()
+        observationJob = null
+        openMovementsJob = null
+        availablePermissionsJob = null
+        communityAlertsJob = null
+    }
+
     private fun refreshCounterStatus() {
-        if (!_uiState.value.backendConfigured) return
+        if (!_uiState.value.backendConfigured || !_uiState.value.accessApproved) return
 
         val year = _uiState.value.selectedYear
         val type = _uiState.value.selectedType
@@ -309,7 +521,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun restartObservation() {
-        if (!_uiState.value.backendConfigured) return
+        if (!_uiState.value.backendConfigured || !_uiState.value.accessApproved) return
         observationJob?.cancel()
         observationJob = viewModelScope.launch {
             val state = _uiState.value
@@ -341,7 +553,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun restartOpenMovements() {
-        if (!_uiState.value.backendConfigured) return
+        if (!_uiState.value.backendConfigured || !_uiState.value.accessApproved) return
         openMovementsJob?.cancel()
 
         val type = _uiState.value.selectedType
@@ -358,7 +570,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun restartAvailablePermissions() {
-        if (!_uiState.value.backendConfigured) return
+        if (!_uiState.value.backendConfigured || !_uiState.value.accessApproved) return
         availablePermissionsJob?.cancel()
         availablePermissionsJob = viewModelScope.launch {
             repository.observeAvailablePermissions(LocalDate.now().year).collect { permissions ->
@@ -368,13 +580,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startForegroundCommunityAlerts() {
-        viewModelScope.launch {
+        communityAlertsJob?.cancel()
+        communityAlertsJob = viewModelScope.launch {
             while (isActive) {
                 runCatching { repository.checkCommunityNotifications() }
                     .onSuccess { entries ->
                         CommunityNotificationHelper.notifyNewEntries(getApplication(), entries)
                     }
-                delay(10_000)
+                delay(60_000)
             }
         }
     }

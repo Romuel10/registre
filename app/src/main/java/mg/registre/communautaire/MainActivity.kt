@@ -23,6 +23,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import mg.registre.communautaire.security.AccessRole
+import mg.registre.communautaire.ui.AdminAccessControl
+import mg.registre.communautaire.ui.AuthenticationGate
 import mg.registre.communautaire.ui.MainViewModel
 import mg.registre.communautaire.ui.RegistreApp
 import mg.registre.communautaire.ui.theme.RegistreTheme
@@ -64,7 +68,7 @@ class MainActivity : ComponentActivity() {
 
                 if (splash) {
                     ProfessionalSplash()
-                } else {
+                } else if (!state.backendConfigured) {
                     RegistreApp(
                         state = state,
                         onSelectType = viewModel::selectType,
@@ -79,6 +83,56 @@ class MainActivity : ComponentActivity() {
                         onClearError = viewModel::clearError,
                         onClearNotice = viewModel::clearNotice,
                     )
+                } else if (state.authLoading || !state.authenticated || !state.accessApproved) {
+                    AuthenticationGate(
+                        state = state,
+                        onSignIn = viewModel::signIn,
+                        onSignUp = viewModel::signUp,
+                        onBootstrapAdmin = viewModel::bootstrapAdmin,
+                        onSignOut = viewModel::signOut,
+                        onClearError = viewModel::clearError,
+                        onClearNotice = viewModel::clearNotice,
+                    )
+                } else {
+                    val registerState = if (state.role == AccessRole.VIEWER) {
+                        state.copy(counterLoading = true)
+                    } else {
+                        state
+                    }
+
+                    Box(Modifier.fillMaxSize()) {
+                        RegistreApp(
+                            state = registerState,
+                            onSelectType = viewModel::selectType,
+                            onSelectYear = viewModel::selectYear,
+                            onFontScale = viewModel::setFontScale,
+                            onSaveStandard = viewModel::saveStandard,
+                            onSavePermission = viewModel::savePermission,
+                            onCloseMovement = viewModel::closeMovement,
+                            onCancelEntry = viewModel::cancelEntry,
+                            onDeleteEntry = viewModel::deleteEntry,
+                            onInitializeCounter = viewModel::initializeCounter,
+                            onClearError = viewModel::clearError,
+                            onClearNotice = viewModel::clearNotice,
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(16.dp),
+                        ) {
+                            if (state.role == AccessRole.ADMIN) {
+                                AdminAccessControl(
+                                    onAddMember = viewModel::addMember,
+                                    onSignOut = viewModel::signOut,
+                                )
+                            } else {
+                                OutlinedButton(onClick = viewModel::signOut) {
+                                    Text("Déconnexion")
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
