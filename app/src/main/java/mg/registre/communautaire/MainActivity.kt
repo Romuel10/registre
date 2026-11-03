@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
                         state = state,
                         onSignIn = viewModel::signIn,
                         onSignUp = viewModel::signUp,
+                        onBootstrapAdmin = viewModel::bootstrapAdmin,
                         onSignOut = viewModel::signOut,
                         onClearError = viewModel::clearError,
                         onClearNotice = viewModel::clearNotice,
