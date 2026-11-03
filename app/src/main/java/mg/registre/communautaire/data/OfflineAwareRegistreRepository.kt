@@ -34,47 +34,15 @@ class OfflineAwareRegistreRepository(private val context: Context) {
     fun observeOpenMovements(year: Int, type: RegisterType): Flow<List<RegisterEntry>> =
         refreshSignals().mapLatest {
             if (type != RegisterType.R2 && type != RegisterType.R4) return@mapLatest emptyList()
-            val all = snapshot(year, type)
-            val completedMovementIds = all
-                .filter {
-                    it.messageKind == RegisterEntry.MESSAGE_AVAILABILITY &&
-                        it.status != RegisterEntry.STATUS_CANCELLED &&
-                        !it.isDeleted
-                }
-                .map { it.relatedMovementId }
-                .filter { it.isNotBlank() }
-                .toSet()
-
-            all.filter {
-                it.messageKind == RegisterEntry.MESSAGE_MOVEMENT &&
-                    it.status != RegisterEntry.STATUS_CANCELLED &&
-                    !it.isDeleted &&
-                    it.id !in completedMovementIds
-            }.sortedByDescending { it.createdAtMillis }
+            OfflineRegisterRules.openMovements(snapshot(year, type))
         }
 
     fun observeAvailablePermissions(year: Int): Flow<List<RegisterEntry>> =
         refreshSignals().mapLatest {
             val permissions = snapshot(year, RegisterType.R3PERM)
-                .filter {
-                    it.status == RegisterEntry.STATUS_NUMBERED &&
-                        !it.isDeleted &&
-                        it.officialNumber != null
-                }
-
             val movements = listOf(RegisterType.R2, RegisterType.R4)
                 .flatMap { snapshot(year, it) }
-                .filter {
-                    it.messageKind == RegisterEntry.MESSAGE_MOVEMENT &&
-                        it.status != RegisterEntry.STATUS_CANCELLED &&
-                        !it.isDeleted &&
-                        it.relatedPermissionId.isNotBlank()
-                }
-
-            val usedPermissionIds = movements.map { it.relatedPermissionId }.toSet()
-            permissions
-                .filter { it.id !in usedPermissionIds }
-                .sortedByDescending { it.createdAtMillis }
+            OfflineRegisterRules.availablePermissions(permissions, movements)
         }
 
     suspend fun getCounterStatus(year: Int, type: RegisterType): CounterStatus =
