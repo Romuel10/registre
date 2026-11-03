@@ -37,6 +37,7 @@ fun AuthenticationGate(
     state: MainUiState,
     onSignIn: (String, String) -> Unit,
     onSignUp: (String, String) -> Unit,
+    onBootstrapAdmin: (String) -> Unit,
     onSignOut: () -> Unit,
     onClearError: () -> Unit,
     onClearNotice: () -> Unit,
@@ -71,6 +72,7 @@ fun AuthenticationGate(
     }
 
     if (state.authenticated && !state.accessApproved) {
+        var bootstrapCode by remember { mutableStateOf("") }
         Box(
             Modifier.fillMaxSize().padding(24.dp),
             contentAlignment = Alignment.Center,
@@ -80,10 +82,35 @@ fun AuthenticationGate(
                     Modifier.padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("Accès au registre non autorisé", style = MaterialTheme.typography.headlineSmall)
-                    Text(
-                        "Votre compte est valide, mais un administrateur du Registre Communautaire doit encore vous ajouter."
-                    )
+                    if (state.bootstrapRequired) {
+                        Text(
+                            "Initialiser le premier administrateur",
+                            style = MaterialTheme.typography.headlineSmall,
+                        )
+                        Text(
+                            "Aucun administrateur du Registre n'est encore configuré. " +
+                                "Saisissez le code d'amorçage à usage unique fourni lors du déploiement."
+                        )
+                        OutlinedTextField(
+                            value = bootstrapCode,
+                            onValueChange = { bootstrapCode = it.uppercase() },
+                            label = { Text("Code d'amorçage") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        Button(
+                            onClick = { onBootstrapAdmin(bootstrapCode) },
+                            enabled = bootstrapCode.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Activer ce compte comme administrateur")
+                        }
+                    } else {
+                        Text("Accès au registre non autorisé", style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            "Votre compte est valide, mais un administrateur du Registre Communautaire doit encore vous ajouter."
+                        )
+                    }
                     if (state.email.isNotBlank()) Text(state.email, fontWeight = FontWeight.SemiBold)
                     OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
                         Text("Se déconnecter")
@@ -138,7 +165,7 @@ fun AuthenticationGate(
                     Text("Créer un compte")
                 }
                 Text(
-                    "Le premier compte autorisé après la migration devient administrateur. Les comptes suivants doivent être approuvés par cet administrateur.",
+                    "L'accès au Registre est distinct des autres applications utilisant ce même projet Supabase.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
